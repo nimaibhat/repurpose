@@ -17,7 +17,7 @@ query DiseaseSearch($name: String!) {
 ASSOCIATED_TARGETS_QUERY = """
 query AssociatedTargets($efoId: String!) {
   disease(efoId: $efoId) {
-    associatedTargets(page: {size: 5, index: 0}) {
+    associatedTargets(page: {size: 10, index: 0}) {
       rows {
         target {
           id
@@ -56,7 +56,7 @@ async def search_disease(disease_name: str) -> dict:
 
 
 async def get_associated_targets(efo_id: str) -> list[dict]:
-    """Get top 5 targets for a disease EFO ID, sorted by association score."""
+    """Get top 10 targets for a disease EFO ID, sorted by association score."""
     data = await _post_graphql(ASSOCIATED_TARGETS_QUERY, {"efoId": efo_id})
     disease = data.get("disease")
     if not disease:

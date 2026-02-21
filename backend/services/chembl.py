@@ -122,11 +122,14 @@ async def search_drugs(symbol: str, limit: int = 20) -> tuple[str, list[dict]]:
     # Split by phase
     phase4 = [m for m in molecules if (m.get("max_phase") or 0) >= 4]
     phase3 = [m for m in molecules if (m.get("max_phase") or 0) == 3]
+    phase2 = [m for m in molecules if (m.get("max_phase") or 0) == 2]
 
-    # Prefer Phase 4; backfill with Phase 3 if too few
+    # Prefer Phase 4; backfill with Phase 3 and Phase 2 if too few
     results = phase4[:]
     if len(results) < MIN_PHASE4_COUNT:
         results.extend(phase3)
+    if len(results) < MIN_PHASE4_COUNT:
+        results.extend(phase2)
 
     # Sort: Phase 4 first, then by name
     results.sort(key=lambda d: (-(d.get("max_phase") or 0), d.get("name") or ""))
