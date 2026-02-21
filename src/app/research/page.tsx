@@ -400,6 +400,18 @@ export default function ResearchPage() {
   }, []);
 
   const handleRunAnalysis = () => {
+    // Target-Specific mode: route to the protein-first pipeline
+    if (focusMode === 'target') {
+      if (!proteinTarget) return;
+      const params = new URLSearchParams({
+        target_symbol: proteinTarget,
+        max_candidates: String(maxCandidates),
+      });
+      router.push(`/pipeline/protein?${params.toString()}`);
+      return;
+    }
+
+    // Explore / Drug-Specific modes: route to the standard disease pipeline
     if (!cancerType) return;
     const params = new URLSearchParams({
       disease: cancerType,
@@ -407,9 +419,6 @@ export default function ResearchPage() {
       max_targets: String(maxTargets),
       max_candidates: String(maxCandidates),
     });
-    if (focusMode === 'target' && proteinTarget) {
-      params.set('target_symbol', proteinTarget);
-    }
     if (focusMode === 'drug' && drugName) {
       params.set('drug_name', drugName);
     }
@@ -561,22 +570,22 @@ export default function ResearchPage() {
                 >
                   <motion.button
                     className={`relative w-full py-4 rounded-xl text-base font-light tracking-[0.15em] uppercase overflow-hidden border ${
-                      cancerType
+                      (focusMode === 'target' ? !!proteinTarget : !!cancerType)
                         ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
                         : 'text-white/45 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
                     }`}
-                    whileHover={cancerType ? { scale: 1.005 } : undefined}
-                    whileTap={cancerType ? { scale: 0.995 } : undefined}
+                    whileHover={(focusMode === 'target' ? !!proteinTarget : !!cancerType) ? { scale: 1.005 } : undefined}
+                    whileTap={(focusMode === 'target' ? !!proteinTarget : !!cancerType) ? { scale: 0.995 } : undefined}
                     style={
-                      cancerType
+                      (focusMode === 'target' ? !!proteinTarget : !!cancerType)
                         ? { boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)' }
                         : undefined
                     }
                     onClick={handleRunAnalysis}
-                    disabled={!cancerType}
+                    disabled={!(focusMode === 'target' ? !!proteinTarget : !!cancerType)}
                   >
                     <span className="relative z-10">Run Analysis</span>
-                    {cancerType && (
+                    {(focusMode === 'target' ? !!proteinTarget : !!cancerType) && (
                       <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />
                     )}
                   </motion.button>
