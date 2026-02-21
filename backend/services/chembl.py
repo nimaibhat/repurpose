@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 
 BASE_URL = "https://www.ebi.ac.uk/chembl/api/data"
@@ -110,14 +111,19 @@ async def search_drugs(symbol: str, limit: int = 50) -> tuple[str, list[dict]]:
     # Deduplicate molecule IDs
     mol_ids = list(dict.fromkeys(m["molecule_chembl_id"] for m in mechanisms))
 
-    # Fetch molecules concurrently
+    # Fetch molecules in parallel with batching (20 at a time)
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         molecules = []
-        for mol_id in mol_ids:
-            mol = await get_molecule(client, mol_id)
-            if mol:
-                mol["mechanism"] = moa_map.get(mol["chembl_id"])
-                molecules.append(mol)
+        batch_size = 20
+        for i in range(0, len(mol_ids), batch_size):
+            batch = mol_ids[i:i + batch_size]
+            batch_tasks = [get_molecule(client, mol_id) for mol_id in batch]
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            
+            for mol in batch_results:
+                if mol and not isinstance(mol, Exception):
+                    mol["mechanism"] = moa_map.get(mol["chembl_id"])
+                    molecules.append(mol)
 
     # Split by phase
     phase4 = [m for m in molecules if (m.get("max_phase") or 0) >= 4]
