@@ -30,15 +30,12 @@ class TargetsResponse(BaseModel):
 
 
 # --- Structures ---
-class StructureHit(BaseModel):
+class StructureResponse(BaseModel):
+    symbol: str
     pdb_id: str
-    title: str
     resolution: float | None = None
-
-
-class StructuresResponse(BaseModel):
-    target_id: str
-    structures: list[StructureHit]
+    source: str  # "rcsb" or "alphafold"
+    pdb_text: str
 
 
 # --- Drugs ---
