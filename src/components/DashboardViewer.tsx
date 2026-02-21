@@ -23,10 +23,11 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
     { pdbText, initialLigandSdf, initialProteinStyle = 'cartoon', height = '100%' },
     ref,
   ) {
-    const containerRef = useRef<HTMLDivElement>(null);
+    const wrapperRef = useRef<HTMLDivElement>(null);   // outer — captures wheel events
+    const containerRef = useRef<HTMLDivElement>(null); // inner — 3Dmol canvas
     const viewerRef = useRef<any>(null);
     const $3DmolRef = useRef<any>(null);
-    const proteinModelRef = useRef<any>(null);   // stable ref to protein model
+    const proteinModelRef = useRef<any>(null);
     const ligandModelRef = useRef<any>(null);
     const surfaceRef = useRef<any>(null);
     const proteinStyleRef = useRef<ProteinStyle>(initialProteinStyle);
@@ -34,7 +35,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
     const currentLigandSdf = useRef<string | null>(initialLigandSdf || null);
     const readyRef = useRef(false);
 
-    // Apply protein style using model object reference (not fragile index)
     const applyProteinStyle = useCallback((style: ProteinStyle) => {
       const viewer = viewerRef.current;
       const $3Dmol = $3DmolRef.current;
@@ -48,18 +48,12 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
 
       switch (style) {
         case 'cartoon':
-          // Slightly transparent cartoon so ligand is visible through it
-          viewer.setStyle(sel, {
-            cartoon: { color: 'spectrum', opacity: 0.75 },
-          });
+          viewer.setStyle(sel, { cartoon: { color: 'spectrum', opacity: 0.75 } });
           break;
         case 'surface':
-          viewer.setStyle(sel, {
-            cartoon: { color: 'spectrum', opacity: 0.3 },
-          });
+          viewer.setStyle(sel, { cartoon: { color: 'spectrum', opacity: 0.3 } });
           surfaceRef.current = viewer.addSurface($3Dmol.SurfaceType.VDW, {
-            opacity: 0.6,
-            color: 'lightblue',
+            opacity: 0.6, color: 'lightblue',
           }, sel);
           break;
         case 'ballstick':
@@ -74,7 +68,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       viewer.render();
     }, []);
 
-    // Style the ligand model
     const styleLigand = useCallback((model: any) => {
       if (!model) return;
       model.setStyle({}, {
@@ -83,7 +76,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       });
     }, []);
 
-    // Add or swap ligand; zoom to binding site when ligand is present
     const setLigand = useCallback((sdf: string | null) => {
       const viewer = viewerRef.current;
       if (!viewer) return;
@@ -99,11 +91,8 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         const model = viewer.addModel(sdf, 'sdf');
         styleLigand(model);
         ligandModelRef.current = model;
-
-        // Zoom to the ligand binding site so it's clearly visible
         viewer.zoomTo({ model: model }, 1000);
       } else {
-        // No ligand — zoom to whole protein
         viewer.zoomTo({ model: proteinModelRef.current });
       }
 
@@ -115,7 +104,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       ligandVisibleRef.current = visible;
 
       if (visible && currentLigandSdf.current) {
-        // Re-add ligand
         if (ligandModelRef.current) {
           viewer?.removeModel(ligandModelRef.current);
           ligandModelRef.current = null;
@@ -131,7 +119,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         if (viewer && ligandModelRef.current) {
           viewer.removeModel(ligandModelRef.current);
           ligandModelRef.current = null;
-          // Re-apply protein style after model removal to keep it correct
           applyProteinStyle(proteinStyleRef.current);
           viewer.zoomTo({ model: proteinModelRef.current });
           viewer.render();
@@ -153,12 +140,26 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
 
     const setProteinStyle = useCallback((style: ProteinStyle) => {
       applyProteinStyle(style);
-      // Re-style ligand after protein style change to ensure it stays visible
       if (ligandModelRef.current && ligandVisibleRef.current) {
         styleLigand(ligandModelRef.current);
         viewerRef.current?.render();
       }
     }, [applyProteinStyle, styleLigand]);
+
+    // Zoom helpers exposed to buttons
+    const zoomIn = useCallback(() => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.zoom(1.2, 200);
+      viewer.render();
+    }, []);
+
+    const zoomOut = useCallback(() => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+      viewer.zoom(0.8, 200);
+      viewer.render();
+    }, []);
 
     useImperativeHandle(ref, () => ({
       setLigand,
@@ -166,6 +167,44 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       setLigandVisible,
       resetView,
     }), [setLigand, setProteinStyle, setLigandVisible, resetView]);
+
+    // Cursor-centric wheel zoom — intercept in capture phase before 3Dmol's listener
+    useEffect(() => {
+      const wrapper = wrapperRef.current;
+      const container = containerRef.current;
+      if (!wrapper || !container) return;
+
+      const onWheel = (e: WheelEvent) => {
+        const viewer = viewerRef.current;
+        if (!viewer) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const rect = container.getBoundingClientRect();
+        // Cursor offset from canvas centre (screen coords)
+        const cx = e.clientX - rect.left - rect.width / 2;
+        const cy = e.clientY - rect.top - rect.height / 2;
+
+        // Normalise delta so touchpad (small values) and mouse wheel behave similarly
+        const rawDelta = e.deltaY !== 0 ? e.deltaY : -e.deltaX;
+        const clamped = Math.sign(rawDelta) * Math.min(Math.abs(rawDelta), 100);
+        const factor = 1 - clamped * 0.005; // ~0.5 % per pixel of scroll
+
+        // Cursor-centric: shift scene toward cursor, zoom, done.
+        // After zooming by k, a point at (cx,cy) would move to (cx*k, cy*k).
+        // To keep it under the cursor we translate by -(cx*(k-1), -cy*(k-1)).
+        // 3Dmol's y axis points up so we negate cy.
+        const k = factor;
+        viewer.translate(-cx * (k - 1), cy * (k - 1), 0);
+        viewer.zoom(k, 0);
+        viewer.render();
+      };
+
+      // capture:true so we fire before 3Dmol's bubble-phase canvas listener
+      wrapper.addEventListener('wheel', onWheel, { passive: false, capture: true });
+      return () => wrapper.removeEventListener('wheel', onWheel, { capture: true });
+    }, []);
 
     // Initialize viewer once
     useEffect(() => {
@@ -184,7 +223,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         });
         viewerRef.current = viewer;
 
-        // Add protein — store model reference
         proteinModelRef.current = viewer.addModel(pdbText, 'pdb');
         applyProteinStyle(proteinStyleRef.current);
 
@@ -193,7 +231,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
           styleLigand(ligand);
           ligandModelRef.current = ligand;
           currentLigandSdf.current = initialLigandSdf;
-          // Zoom to ligand so binding site is in focus
           viewer.zoomTo({ model: ligand });
         } else {
           viewer.zoomTo();
@@ -216,21 +253,37 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       };
     }, [pdbText, initialLigandSdf, applyProteinStyle, styleLigand]);
 
-    // Resize on container change
     useEffect(() => {
       const viewer = viewerRef.current;
-      if (viewer) {
-        viewer.resize();
-        viewer.render();
-      }
+      if (viewer) { viewer.resize(); viewer.render(); }
     }, [height]);
 
     return (
-      <div
-        ref={containerRef}
-        className="w-full rounded-xl border border-white/[0.06] bg-black/40 overflow-hidden"
-        style={{ height, position: 'relative' }}
-      />
+      <div ref={wrapperRef} className="relative w-full">
+        <div
+          ref={containerRef}
+          className="w-full rounded-xl border border-white/[0.06] bg-black/40 overflow-hidden"
+          style={{ height, position: 'relative' }}
+        />
+
+        {/* Zoom buttons */}
+        <div className="absolute bottom-3 right-3 flex flex-col gap-1 z-10">
+          <button
+            onClick={zoomIn}
+            className="w-7 h-7 flex items-center justify-center rounded-md border border-white/[0.08] bg-black/60 backdrop-blur-sm text-white/50 hover:text-white/80 hover:border-white/20 transition-all duration-150 text-sm font-light select-none"
+            title="Zoom in"
+          >
+            +
+          </button>
+          <button
+            onClick={zoomOut}
+            className="w-7 h-7 flex items-center justify-center rounded-md border border-white/[0.08] bg-black/60 backdrop-blur-sm text-white/50 hover:text-white/80 hover:border-white/20 transition-all duration-150 text-sm font-light select-none"
+            title="Zoom out"
+          >
+            −
+          </button>
+        </div>
+      </div>
     );
   },
 );
