@@ -552,34 +552,36 @@ export default function ResearchPage() {
                   </AnimatePresence>
                 </motion.div>
 
-            {/* Run Analysis Button */}
-            <motion.div
-              className="mt-8"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.6 }}
-            >
-              <motion.button
-                className={`relative w-full py-4 rounded-xl text-base font-light tracking-[0.15em] uppercase overflow-hidden border ${
-                  cancerType
-                    ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
-                    : 'text-white/45 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
-                }`}
-                whileHover={cancerType ? { scale: 1.005 } : undefined}
-                whileTap={cancerType ? { scale: 0.995 } : undefined}
-                style={
-                  cancerType
-                    ? { boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)' }
-                    : undefined
-                }
-                onClick={handleRunAnalysis}
-                disabled={!cancerType}
-              >
-                <span className="relative z-10">Run Analysis</span>
-                {cancerType && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />
-                )}
-              </motion.button>
+                {/* Run Analysis Button */}
+                <motion.div
+                  className="mt-8"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.6 }}
+                >
+                  <motion.button
+                    className={`relative w-full py-4 rounded-xl text-base font-light tracking-[0.15em] uppercase overflow-hidden border ${
+                      cancerType
+                        ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
+                        : 'text-white/45 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
+                    }`}
+                    whileHover={cancerType ? { scale: 1.005 } : undefined}
+                    whileTap={cancerType ? { scale: 0.995 } : undefined}
+                    style={
+                      cancerType
+                        ? { boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)' }
+                        : undefined
+                    }
+                    onClick={handleRunAnalysis}
+                    disabled={!cancerType}
+                  >
+                    <span className="relative z-10">Run Analysis</span>
+                    {cancerType && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />
+                    )}
+                  </motion.button>
+                </motion.div>
+              </div>
             </motion.div>
           )}
 

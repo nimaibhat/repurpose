@@ -25,9 +25,16 @@ venv/
 .DS_Store
 *.pem
 
+# trained models
+backend/models/tox21/
+backend/models/tox21_transformers.pkl
+
 # backend data
 backend/data/
 backend/__pycache__/
 backend/**/__pycache__/
 *.pyc
 *.pem
+
+
+*.pdb

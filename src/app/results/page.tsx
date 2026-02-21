@@ -12,18 +12,33 @@ import type { DashboardViewerHandle, ProteinStyle } from '@/components/Dashboard
 const WaveField = dynamic(() => import('@/components/WaveField'), { ssr: false });
 const MoleculeCard = dynamic(() => import('@/components/MoleculeCard'), { ssr: false });
 const ConfidenceHeatmap = dynamic(() => import('@/components/ConfidenceHeatmap'), { ssr: false });
+const ADMETRadar = dynamic(() => import('@/components/ADMETRadar'), { ssr: false });
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+interface AdmetProfile {
+  absorption: number;
+  distribution: number;
+  metabolism: number;
+  excretion: number;
+  toxicity: number;
+  drug_likeness: number;
+  overall_score: number;
+  flags: string[];
+  pass_fail: 'pass' | 'warn' | 'fail';
+}
 
 interface Candidate {
   rank: number;
   drug_name: string;
   smiles: string;
   confidence_score: number;
+  combined_score?: number;
   mechanism?: string;
   explanation?: string;
   risk_benefit?: string;
   max_phase?: number;
+  admet?: AdmetProfile;
 }
 
 interface DockingEntry {
@@ -47,13 +62,12 @@ interface ResultsData {
   docking_data: DockingEntry[];
   pdb_text: string;
   report: string;
-  // Multi-target data (optional — present when from batch pipeline)
   all_targets?: { symbol: string; name: string; score: number }[];
   all_docking_results?: DockingResultFull[];
 }
 
-type SortMode = 'confidence' | 'alphabetical' | 'phase';
-type DetailTab = 'explanation' | 'mechanism' | 'report';
+type SortMode = 'combined' | 'binding' | 'safety' | 'alphabetical' | 'phase';
+type DetailTab = 'explanation' | 'safety' | 'mechanism' | 'report';
 type ViewMode = 'list' | 'heatmap';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -64,6 +78,15 @@ const glassStyle = {
   background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
   boxShadow: '0 0 80px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.05)',
 };
+
+const ADMET_PROPERTIES = [
+  { key: 'absorption', label: 'Absorption' },
+  { key: 'distribution', label: 'Distribution' },
+  { key: 'metabolism', label: 'Metabolism' },
+  { key: 'excretion', label: 'Excretion' },
+  { key: 'toxicity', label: 'Toxicity' },
+  { key: 'drug_likeness', label: 'Drug-likeness' },
+] as const;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -79,16 +102,63 @@ function scoreBg(score: number): string {
   return 'bg-red-500';
 }
 
+function scoreTextClass(score: number): string {
+  if (score >= 0.7) return 'text-emerald-400';
+  if (score >= 0.4) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
+function getCombinedScore(c: Candidate): number {
+  if (c.combined_score != null) return c.combined_score;
+  const admetScore = c.admet?.overall_score ?? 0;
+  return c.confidence_score * 0.6 + admetScore * 0.4;
+}
+
 function sortCandidates(candidates: Candidate[], mode: SortMode): Candidate[] {
   const sorted = [...candidates];
   switch (mode) {
-    case 'confidence':
+    case 'combined':
+      return sorted.sort((a, b) => getCombinedScore(b) - getCombinedScore(a));
+    case 'binding':
       return sorted.sort((a, b) => b.confidence_score - a.confidence_score);
+    case 'safety':
+      return sorted.sort((a, b) => (b.admet?.overall_score ?? 0) - (a.admet?.overall_score ?? 0));
     case 'alphabetical':
       return sorted.sort((a, b) => (a.drug_name || '').localeCompare(b.drug_name || ''));
     case 'phase':
       return sorted.sort((a, b) => (b.max_phase || 0) - (a.max_phase || 0));
   }
+}
+
+function admetExplanation(property: string, score: number): string {
+  const favorable: Record<string, string> = {
+    absorption: 'Predicted good oral bioavailability based on favorable molecular properties',
+    distribution: 'Good tissue distribution predicted from balanced lipophilicity and polar surface area',
+    metabolism: 'Low metabolic liability — no reactive substructures detected',
+    excretion: 'Favorable clearance profile based on molecular weight and lipophilicity',
+    toxicity: 'Low toxicity risk across screening assays',
+    drug_likeness: 'Excellent drug-like properties consistent with approved therapeutics',
+  };
+  const moderate: Record<string, string> = {
+    absorption: 'Moderate oral absorption — some molecular properties are suboptimal',
+    distribution: 'Moderate distribution — lipophilicity or polar surface area slightly outside optimal range',
+    metabolism: 'Some metabolic liability detected — monitor for CYP450 interactions',
+    excretion: 'Moderate clearance — may require dose adjustment monitoring',
+    toxicity: 'Moderate toxicity signals — further in vitro testing recommended',
+    drug_likeness: 'Moderate drug-likeness — minor deviations from ideal properties',
+  };
+  const concern: Record<string, string> = {
+    absorption: 'Poor predicted absorption — high polar surface area or Lipinski violations',
+    distribution: 'Poor distribution predicted — highly lipophilic or very polar',
+    metabolism: 'High metabolic liability — reactive substructures or excessive rotatable bonds',
+    excretion: 'Poor clearance profile — high molecular weight compounds clear slowly',
+    toxicity: 'Activity detected across multiple toxicity assays. Further investigation recommended',
+    drug_likeness: 'Poor drug-likeness — multiple property violations detected',
+  };
+
+  if (score >= 0.7) return `Favorable — ${favorable[property] || 'Within acceptable range'}`;
+  if (score >= 0.4) return `Moderate — ${moderate[property] || 'Some concerns detected'}`;
+  return `Concern — ${concern[property] || 'Outside acceptable range'}`;
 }
 
 // ─── Mechanism Flow Diagram ─────────────────────────────────────────────────
@@ -195,7 +265,6 @@ function ViewerControls({
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      {/* Protein style toggles */}
       {styles.map((s) => (
         <button
           key={s.value}
@@ -212,7 +281,6 @@ function ViewerControls({
 
       <div className="w-px h-4 bg-white/[0.06] mx-1" />
 
-      {/* Ligand toggle */}
       <button
         onClick={onToggleLigand}
         className={`px-3.5 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 ${
@@ -224,7 +292,6 @@ function ViewerControls({
         {ligandVisible ? 'Hide Ligand' : 'Show Ligand'}
       </button>
 
-      {/* Reset view */}
       <button
         onClick={onReset}
         className="px-3.5 py-2 rounded-lg text-xs font-light tracking-wide border border-white/[0.06] bg-white/[0.02] text-white/50 hover:text-white/50 hover:border-white/[0.1] transition-all duration-300"
@@ -240,6 +307,7 @@ function ViewerControls({
 function TabBar({ active, onChange }: { active: DetailTab; onChange: (t: DetailTab) => void }) {
   const tabs: { value: DetailTab; label: string }[] = [
     { value: 'explanation', label: 'Explanation' },
+    { value: 'safety', label: 'Safety' },
     { value: 'mechanism', label: 'Mechanism' },
     { value: 'report', label: 'Full Report' },
   ];
@@ -277,7 +345,7 @@ function ResultsContent() {
   const viewerRef = useRef<DashboardViewerHandle>(null);
   const [data, setData] = useState<ResultsData | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [sortMode, setSortMode] = useState<SortMode>('confidence');
+  const [sortMode, setSortMode] = useState<SortMode>('combined');
   const [proteinStyle, setProteinStyle] = useState<ProteinStyle>('cartoon');
   const [ligandVisible, setLigandVisible] = useState(true);
   const [activeTab, setActiveTab] = useState<DetailTab>('explanation');
@@ -349,7 +417,7 @@ function ResultsContent() {
     }
   }, [data?.report]);
 
-  // Download report as text (PDF would require a server-side library)
+  // Download report as text
   const handleDownloadReport = useCallback(() => {
     if (!data?.report) return;
     const blob = new Blob([data.report], { type: 'text/markdown' });
@@ -361,7 +429,7 @@ function ResultsContent() {
     URL.revokeObjectURL(url);
   }, [data]);
 
-  // Heatmap cell click — find matching candidate and select it
+  // Heatmap cell click
   const handleHeatmapClick = useCallback(
     (_target: string, drug: string) => {
       const idx = sorted.findIndex((c) => c.drug_name === drug);
@@ -370,12 +438,11 @@ function ResultsContent() {
     [sorted, handleSelect],
   );
 
-  // Derive heatmap data — use multi-target data when available
+  // Derive heatmap data
   const heatmapTargets = data?.all_targets?.length
     ? data.all_targets.map((t) => t.symbol)
     : data ? [data.target.symbol] : [];
 
-  // Build a unique drug list from docking results (preserving order by best score)
   const allDockingResults = data?.all_docking_results || [];
   const seenDrugs = new Set<string>();
   const heatmapDrugs: string[] = [];
@@ -391,7 +458,6 @@ function ResultsContent() {
     sorted.forEach((c) => heatmapDrugs.push(c.drug_name || 'Unknown'));
   }
 
-  // Build 2D score matrix: scores[targetIdx][drugIdx]
   const heatmapScores: number[][] = heatmapTargets.map((target) =>
     heatmapDrugs.map((drug) => {
       if (allDockingResults.length > 0) {
@@ -400,7 +466,6 @@ function ResultsContent() {
         );
         return match?.confidence_score ?? 0;
       }
-      // Fallback: single-target mode
       const candidate = sorted.find((c) => (c.drug_name || 'Unknown') === drug);
       return candidate?.confidence_score ?? 0;
     }),
@@ -416,7 +481,7 @@ function ResultsContent() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0a0b0f]">
-      {/* Shader background — very dim for dense UI */}
+      {/* Shader background */}
       <div className="fixed inset-0 z-0 opacity-[0.25]">
         <WaveField speed={0.2} intensity={1.2} />
       </div>
@@ -431,7 +496,6 @@ function ResultsContent() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease }}
         >
-          {/* Left: back */}
           <button
             onClick={() => router.push('/research')}
             className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/55 hover:text-white/60 transition-colors duration-300"
@@ -442,7 +506,6 @@ function ResultsContent() {
             New Search
           </button>
 
-          {/* Center: title */}
           <div className="flex items-center gap-2">
             <span className="text-base font-light text-white/70">{data.disease}</span>
             <span className="text-white/15">&mdash;</span>
@@ -450,7 +513,6 @@ function ResultsContent() {
             <span className="text-xs font-light text-white/45">({data.target.name})</span>
           </div>
 
-          {/* Right: actions */}
           <div className="flex items-center gap-2">
             <button
               onClick={handleDownloadReport}
@@ -492,7 +554,7 @@ function ResultsContent() {
                   </span>
                 </div>
 
-                {/* View toggle: List / Heatmap */}
+                {/* View toggle */}
                 <div className="flex gap-1 p-0.5 rounded-md bg-white/[0.02] border border-white/[0.05]">
                   {(['list', 'heatmap'] as ViewMode[]).map((mode) => (
                     <button
@@ -515,21 +577,27 @@ function ResultsContent() {
                 </div>
               </div>
 
-              {/* Sort — only visible in list mode */}
+              {/* Sort */}
               {viewMode === 'list' && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-light text-white/60 tracking-wide uppercase">Sort by:</span>
-                  {(['confidence', 'alphabetical', 'phase'] as SortMode[]).map((mode) => (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-light text-white/60 tracking-wide uppercase">Sort:</span>
+                  {([
+                    { mode: 'combined' as SortMode, label: 'Combined' },
+                    { mode: 'binding' as SortMode, label: 'Binding' },
+                    { mode: 'safety' as SortMode, label: 'Safety' },
+                    { mode: 'phase' as SortMode, label: 'Phase' },
+                    { mode: 'alphabetical' as SortMode, label: 'A-Z' },
+                  ]).map(({ mode, label }) => (
                     <button
                       key={mode}
                       onClick={() => { setSortMode(mode); setSelectedIdx(0); }}
-                      className={`px-3 py-1.5 rounded-md text-xs font-light capitalize transition-all duration-300 ${
+                      className={`px-2.5 py-1.5 rounded-md text-xs font-light transition-all duration-300 ${
                         sortMode === mode
                           ? 'bg-white/[0.06] text-white/60 border border-white/[0.1]'
                           : 'text-white/45 hover:text-white/60 border border-transparent'
                       }`}
                     >
-                      {mode}
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -548,27 +616,91 @@ function ResultsContent() {
                     transition={{ duration: 0.2 }}
                     className="space-y-2"
                   >
-                    {sorted.map((c, i) => (
-                      <motion.div
-                        key={c.drug_name || c.rank}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: i * 0.03, ease }}
-                        layout
-                      >
-                        <MoleculeCard
-                          smiles={c.smiles}
-                          drugName={c.drug_name || 'Unknown Drug'}
-                          confidence={c.confidence_score}
-                          phase={c.max_phase}
-                          rank={c.rank}
-                          mechanism={c.mechanism}
-                          selected={i === selectedIdx}
+                    {sorted.map((c, i) => {
+                      const admet = c.admet;
+                      const pf = admet?.pass_fail;
+                      const leftBorder = pf === 'fail'
+                        ? 'border-l-2 border-l-red-500/40'
+                        : pf === 'warn'
+                        ? 'border-l-2 border-l-yellow-500/40'
+                        : '';
+
+                      return (
+                        <motion.button
+                          key={c.drug_name || c.rank}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.3, delay: i * 0.03, ease }}
+                          layout
                           onClick={() => handleSelect(i)}
-                          size="medium"
-                        />
-                      </motion.div>
-                    ))}
+                          whileTap={{ scale: 0.995 }}
+                          className={`w-full text-left rounded-xl border p-4 transition-all duration-300 ${leftBorder} ${
+                            i === selectedIdx
+                              ? 'border-blue-500/25 bg-blue-500/[0.04]'
+                              : 'border-white/[0.05] bg-white/[0.015] hover:border-white/[0.1] hover:bg-white/[0.03]'
+                          }`}
+                        >
+                          {/* Row 1: Rank + Name + Pass/fail dot */}
+                          <div className="flex items-center gap-2 mb-2.5">
+                            <span className="text-xs font-mono font-light text-white/60">
+                              #{c.rank}
+                            </span>
+                            <span className="text-sm font-light text-white/85 truncate flex-1">
+                              {c.drug_name || 'Unknown Drug'}
+                            </span>
+                            {pf && (
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                pf === 'pass' ? 'bg-emerald-500' : pf === 'warn' ? 'bg-yellow-500' : 'bg-red-500'
+                              }`} />
+                            )}
+                          </div>
+
+                          {/* Row 2: Dual progress bars */}
+                          <div className="space-y-1.5">
+                            {/* Binding bar — always blue */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Binding</span>
+                              <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                <motion.div
+                                  className="h-full rounded-full bg-blue-500"
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${Math.min(c.confidence_score * 100, 100)}%` }}
+                                  transition={{ duration: 0.8, ease }}
+                                />
+                              </div>
+                              <span className="text-xs font-mono font-light text-blue-400/80 tabular-nums w-9 text-right">
+                                {c.confidence_score.toFixed(2)}
+                              </span>
+                            </div>
+
+                            {/* Safety bar — colored by score */}
+                            {admet && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Safety</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                  <motion.div
+                                    className={`h-full rounded-full ${scoreBg(admet.overall_score)}`}
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${Math.min(admet.overall_score * 100, 100)}%` }}
+                                    transition={{ duration: 0.8, delay: 0.1, ease }}
+                                  />
+                                </div>
+                                <span className={`text-xs font-mono font-light tabular-nums w-9 text-right ${scoreTextClass(admet.overall_score)}`}>
+                                  {admet.overall_score.toFixed(2)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Row 3: Mechanism */}
+                          {c.mechanism && (
+                            <p className="mt-2 text-xs font-light text-white/45 leading-relaxed line-clamp-1">
+                              {c.mechanism}
+                            </p>
+                          )}
+                        </motion.button>
+                      );
+                    })}
                   </motion.div>
                 ) : (
                   <motion.div
@@ -603,7 +735,6 @@ function ResultsContent() {
                 className="rounded-2xl border border-white/[0.06] p-4 backdrop-blur-sm"
                 style={glassStyle}
               >
-                {/* Viewer + Confidence badge */}
                 <div className="relative">
                   {data.pdb_text && (
                     <DashboardViewer
@@ -617,20 +748,28 @@ function ResultsContent() {
 
                   {/* Confidence overlay badge */}
                   {selected && (
-                    <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
-                      <span className="text-xs font-light text-white/55 tracking-wide uppercase">
-                        Binding Confidence
-                      </span>
-                      <span
-                        className={`text-lg font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}
-                      >
-                        {selected.confidence_score.toFixed(2)}
-                      </span>
+                    <div className="absolute top-3 right-3 flex items-center gap-3 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-light text-white/55 tracking-wide uppercase">Binding</span>
+                        <span className={`text-lg font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}>
+                          {selected.confidence_score.toFixed(2)}
+                        </span>
+                      </div>
+                      {selected.admet && (
+                        <>
+                          <div className="w-px h-5 bg-white/[0.1]" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-light text-white/55 tracking-wide uppercase">Safety</span>
+                            <span className={`text-lg font-light tabular-nums ${scoreLargeTextClass(selected.admet.overall_score)}`}>
+                              {selected.admet.overall_score.toFixed(2)}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
 
-                {/* Controls */}
                 <div className="mt-3">
                   <ViewerControls
                     proteinStyle={proteinStyle}
@@ -643,7 +782,7 @@ function ResultsContent() {
               </div>
             </div>
 
-            {/* Section 2: AI Explanation */}
+            {/* Section 2: Tabbed Content */}
             <div className="flex-1 overflow-hidden px-5 pb-5 flex flex-col">
               <div
                 className="flex-1 rounded-2xl border border-white/[0.06] backdrop-blur-sm flex flex-col overflow-hidden"
@@ -653,7 +792,6 @@ function ResultsContent() {
                 <div className="px-4 pt-4 pb-3 shrink-0 flex items-center justify-between">
                   <TabBar active={activeTab} onChange={setActiveTab} />
 
-                  {/* Drug name label */}
                   {selected && (
                     <motion.div
                       key={selected.drug_name}
@@ -662,7 +800,13 @@ function ResultsContent() {
                       className="flex items-center gap-2"
                     >
                       <span className="text-sm font-light text-white/50">{selected.drug_name}</span>
-                      <span className={`w-1.5 h-1.5 rounded-full ${scoreBg(selected.confidence_score)}`} />
+                      {selected.admet && (
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          selected.admet.pass_fail === 'pass' ? 'bg-emerald-500'
+                            : selected.admet.pass_fail === 'warn' ? 'bg-yellow-500'
+                            : 'bg-red-500'
+                        }`} />
+                      )}
                     </motion.div>
                   )}
                 </div>
@@ -678,7 +822,6 @@ function ResultsContent() {
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.3, ease }}
                       >
-                        {/* Explanation text */}
                         <div className="text-base font-light text-white/60 leading-relaxed">
                           {selected.explanation ? (
                             <p>{selected.explanation}</p>
@@ -687,7 +830,6 @@ function ResultsContent() {
                           )}
                         </div>
 
-                        {/* Risk/Benefit section */}
                         {selected.risk_benefit && (
                           <div className="mt-5 pt-4 border-t border-white/[0.05]">
                             <p className="text-xs font-light tracking-[0.15em] uppercase text-white/45 mb-3">
@@ -697,6 +839,98 @@ function ResultsContent() {
                               {selected.risk_benefit}
                             </div>
                           </div>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {activeTab === 'safety' && selected && (
+                      <motion.div
+                        key={`safety-${selected.drug_name}`}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.3, ease }}
+                      >
+                        {selected.admet ? (
+                          <div className="flex gap-6">
+                            {/* Left: Large radar chart */}
+                            <div className="shrink-0">
+                              <ADMETRadar
+                                scores={{
+                                  absorption: selected.admet.absorption,
+                                  distribution: selected.admet.distribution,
+                                  metabolism: selected.admet.metabolism,
+                                  excretion: selected.admet.excretion,
+                                  toxicity: selected.admet.toxicity,
+                                  drug_likeness: selected.admet.drug_likeness,
+                                }}
+                                flags={selected.admet.flags}
+                                passFail={selected.admet.pass_fail}
+                                drugName={selected.drug_name}
+                                size="large"
+                              />
+                            </div>
+
+                            {/* Right: Property breakdown */}
+                            <div className="flex-1 space-y-3 pt-2">
+                              <div className="flex items-center gap-2 mb-4">
+                                <svg className="w-4 h-4 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                                </svg>
+                                <span className="text-sm font-light tracking-[0.1em] uppercase text-white/55">
+                                  Safety Profile
+                                </span>
+                              </div>
+
+                              {ADMET_PROPERTIES.map(({ key, label }) => {
+                                const score = selected.admet![key as keyof typeof selected.admet] as number;
+                                return (
+                                  <div key={key} className="space-y-1">
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-xs font-light text-white/60 w-24">{label}</span>
+                                      <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                        <motion.div
+                                          className={`h-full rounded-full ${scoreBg(score)}`}
+                                          initial={{ width: 0 }}
+                                          animate={{ width: `${score * 100}%` }}
+                                          transition={{ duration: 0.6, ease }}
+                                        />
+                                      </div>
+                                      <span className={`text-xs font-mono font-light tabular-nums w-8 text-right ${scoreTextClass(score)}`}>
+                                        {score.toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <p className={`text-xs font-light leading-relaxed pl-[108px] ${
+                                      score >= 0.7 ? 'text-emerald-400/60' : score >= 0.4 ? 'text-yellow-400/60' : 'text-red-400/60'
+                                    }`}>
+                                      {admetExplanation(key, score)}
+                                    </p>
+                                  </div>
+                                );
+                              })}
+
+                              {/* Flags */}
+                              {selected.admet.flags.length > 0 && (
+                                <div className="mt-4 pt-3 border-t border-white/[0.05]">
+                                  <p className="text-xs font-light tracking-[0.1em] uppercase text-white/45 mb-2">Flags</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {selected.admet.flags.map((flag) => (
+                                      <span
+                                        key={flag}
+                                        className="px-2.5 py-1 rounded-full text-[11px] font-light tracking-wide border border-red-500/15 bg-red-500/[0.06] text-red-400/70"
+                                      >
+                                        {flag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-base font-light text-white/45 italic">
+                            No ADMET safety data available for this candidate.
+                          </p>
                         )}
                       </motion.div>
                     )}
@@ -739,7 +973,6 @@ function ResultsContent() {
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.3, ease }}
                       >
-                        {/* Action buttons */}
                         <div className="flex items-center gap-2 mb-4">
                           <button
                             onClick={handleCopyReport}
@@ -761,7 +994,6 @@ function ResultsContent() {
                           </button>
                         </div>
 
-                        {/* Markdown rendered report */}
                         <div className="prose prose-invert prose-sm max-w-none
                           prose-headings:font-light prose-headings:text-white/70 prose-headings:tracking-wide
                           prose-p:text-white/50 prose-p:font-light prose-p:leading-relaxed

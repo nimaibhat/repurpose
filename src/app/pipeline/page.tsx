@@ -10,6 +10,7 @@ import PipelineStepper from '@/components/PipelineStepper';
 const WaveField = dynamic(() => import('@/components/WaveField'), { ssr: false });
 const MolViewer = dynamic(() => import('@/components/MolViewer'), { ssr: false });
 const MoleculeCard = dynamic(() => import('@/components/MoleculeCard'), { ssr: false });
+const ADMETRadar = dynamic(() => import('@/components/ADMETRadar'), { ssr: false });
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -50,12 +51,37 @@ interface DockingResult {
   priority_rank?: number;
 }
 
+interface AdmetSummary {
+  drug_name?: string | null;
+  absorption: number;
+  distribution: number;
+  metabolism: number;
+  excretion: number;
+  toxicity: number;
+  drug_likeness: number;
+  overall_score: number;
+  flags: string[];
+  pass_fail: 'pass' | 'warn' | 'fail';
+}
+
+interface PipelineCandidate {
+  rank: number;
+  drug_name: string;
+  smiles: string;
+  confidence_score: number;
+  combined_score: number;
+  mechanism?: string;
+  explanation?: string;
+  admet: AdmetSummary;
+}
+
 interface PipelineResponse {
   disease: string;
   targets: TargetHit[];
   structures: Structure[];
   drugs: Drug[];
   docking_results: DockingResult[];
+  candidates: PipelineCandidate[];
   report: string;
 }
 
@@ -66,20 +92,22 @@ type StepStatus = 'pending' | 'running' | 'complete' | 'error';
 interface PipelineState {
   stepStatuses: StepStatus[];
   stepData: Array<Record<string, any> | null>;
+  stepMessages: Array<string | null>;
   error: string | null;
   isDone: boolean;
 }
 
 type PipelineAction =
-  | { type: 'STEP_RUNNING'; step: number }
-  | { type: 'STEP_COMPLETE'; step: number; data: Record<string, any> }
+  | { type: 'STEP_RUNNING'; step: number; message?: string }
+  | { type: 'STEP_COMPLETE'; step: number; data: Record<string, any>; message?: string }
   | { type: 'STEP_ERROR'; step: number; message: string }
   | { type: 'DONE'; step: number; data: Record<string, any> }
   | { type: 'FETCH_ERROR'; message: string };
 
 const initialState: PipelineState = {
-  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending'],
-  stepData: [null, null, null, null, null],
+  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
+  stepData: [null, null, null, null, null, null],
+  stepMessages: [null, null, null, null, null, null],
   error: null,
   isDone: false,
 };
@@ -88,15 +116,19 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
   switch (action.type) {
     case 'STEP_RUNNING': {
       const stepStatuses = [...state.stepStatuses];
+      const stepMessages = [...state.stepMessages];
       stepStatuses[action.step - 1] = 'running';
-      return { ...state, stepStatuses };
+      if (action.message) stepMessages[action.step - 1] = action.message;
+      return { ...state, stepStatuses, stepMessages };
     }
     case 'STEP_COMPLETE': {
       const stepStatuses = [...state.stepStatuses];
       const stepData = [...state.stepData];
+      const stepMessages = [...state.stepMessages];
       stepStatuses[action.step - 1] = 'complete';
       stepData[action.step - 1] = action.data;
-      return { ...state, stepStatuses, stepData };
+      if (action.message) stepMessages[action.step - 1] = action.message;
+      return { ...state, stepStatuses, stepData, stepMessages };
     }
     case 'STEP_ERROR': {
       const stepStatuses = [...state.stepStatuses];
@@ -119,13 +151,14 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'Report'];
-const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'file-text'];
+const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'ADMET', 'Report'];
+const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'activity', 'file-text'];
 const STEP_SUB_MESSAGES: string[][] = [
   ['Querying Open Targets database...', 'Ranking disease-gene associations...'],
   ['Searching RCSB PDB database...', 'Downloading protein structures...', 'Trying AlphaFold fallback...'],
   ['Querying ChEMBL database...', 'Finding approved compounds...', 'Extracting molecular data...'],
   ['Preparing protein-ligand pairs...', 'Running DiffDock simulations...', 'Scoring binding poses...', 'Computing confidence scores...'],
+  ['Computing molecular descriptors...', 'Evaluating absorption & distribution...', 'Scoring metabolism & excretion...', 'Assessing toxicity & drug-likeness...'],
   ['Analyzing top docking results...', 'Generating AI-powered report...', 'Formatting recommendations...'],
 ];
 
@@ -183,9 +216,9 @@ async function consumeSSEStream(
       if (eventType === 'done') {
         dispatch({ type: 'DONE', step, data });
       } else if (status === 'running') {
-        dispatch({ type: 'STEP_RUNNING', step });
+        dispatch({ type: 'STEP_RUNNING', step, message });
       } else if (status === 'complete') {
-        dispatch({ type: 'STEP_COMPLETE', step, data });
+        dispatch({ type: 'STEP_COMPLETE', step, data, message });
       } else if (status === 'error') {
         dispatch({ type: 'STEP_ERROR', step, message });
       }
@@ -350,16 +383,16 @@ function PipelineContent() {
   // Reconstruct full result from accumulated step data
   const result = useMemo<PipelineResponse | null>(() => {
     if (!state.isDone) return null;
-    const [s1, s2, s3, s4, s5] = state.stepData;
-    if (!s1 || !s2 || !s3 || !s4 || !s5) return null;
+    const [s1, s2, s3, s4, s5, s6] = state.stepData;
+    if (!s1 || !s2 || !s3 || !s4 || !s5 || !s6) return null;
     return {
       disease: s1.disease,
       targets: s1.targets,
       structures: s2.structures,
       drugs: s3.drugs,
-      // Step 5 (done) returns enriched docking_results with explanations
-      docking_results: s5.docking_results || s4.docking_results,
-      report: s5.report,
+      docking_results: s6.docking_results || s4.docking_results,
+      candidates: s6.candidates || [],
+      report: s6.report,
     };
   }, [state.isDone, state.stepData]);
 
@@ -393,10 +426,16 @@ function PipelineContent() {
     const s = stepStatus(i);
     if (s === 'error') return state.error || 'An error occurred';
     if (s === 'running') {
+      // Use backend message if available, otherwise cycle sub-messages
+      const backendMsg = state.stepMessages[i];
+      if (backendMsg) return backendMsg;
       const msgs = STEP_SUB_MESSAGES[i];
       return msgs[subMsgIndex % msgs.length];
     }
     if (s === 'complete') {
+      // Use backend message if available
+      const backendMsg = state.stepMessages[i];
+      if (backendMsg) return backendMsg;
       const d = state.stepData[i];
       if (d) {
         switch (i) {
@@ -404,7 +443,8 @@ function PipelineContent() {
           case 1: return `Retrieved ${d.structures.length} structure${d.structures.length !== 1 ? 's' : ''}`;
           case 2: return `Found ${d.drugs.length} drug candidate${d.drugs.length !== 1 ? 's' : ''}`;
           case 3: return `Docked ${d.docking_results.length} compound${d.docking_results.length !== 1 ? 's' : ''} successfully`;
-          case 4: return 'Report generated';
+          case 4: return `ADMET analysis complete`;
+          case 5: return 'Report generated';
         }
       }
       return 'Complete';
@@ -416,7 +456,9 @@ function PipelineContent() {
   const targetsData: TargetHit[] = state.stepData[0]?.targets || [];
   const structuresData: Structure[] = state.stepData[1]?.structures || [];
   const drugsData: Drug[] = state.stepData[2]?.drugs || [];
-  const dockingData: DockingResult[] = (state.stepData[4]?.docking_results || state.stepData[3]?.docking_results || []);
+  const admetData: AdmetSummary[] = state.stepData[4]?.admet_results || state.stepData[5]?.admet_results || [];
+  const dockingData: DockingResult[] = (state.stepData[5]?.docking_results || state.stepData[3]?.docking_results || []);
+  const pipelineCandidates: PipelineCandidate[] = state.stepData[5]?.candidates || [];
 
   // Build candidates from progressive data
   const drugMap = useMemo(() => {
@@ -426,6 +468,8 @@ function PipelineContent() {
   }, [drugsData]);
 
   const candidates = useMemo(() => {
+    // Use enriched candidates from done event when available
+    if (pipelineCandidates.length > 0) return pipelineCandidates;
     return dockingData.map((dr: DockingResult, i: number) => {
       const drug = drugMap.get(dr.drug_name || '');
       return {
@@ -433,13 +477,14 @@ function PipelineContent() {
         drug_name: dr.drug_name || 'Unknown',
         smiles: dr.smiles,
         confidence_score: dr.confidence_score,
+        combined_score: dr.confidence_score,
         mechanism: drug?.mechanism || undefined,
         max_phase: drug?.max_phase,
         explanation: dr.explanation || '',
         risk_benefit: dr.risk_benefit || '',
       };
     });
-  }, [dockingData, drugMap]);
+  }, [dockingData, drugMap, pipelineCandidates]);
 
   const dockingViewData = useMemo(() => {
     return dockingData.map((dr: DockingResult) => ({
@@ -463,7 +508,7 @@ function PipelineContent() {
         name: topTarget?.name || '',
         pdb_id: topStructure?.pdb_id || '',
       },
-      candidates,
+      candidates: result.candidates.length > 0 ? result.candidates : candidates,
       docking_data: dockingViewData,
       pdb_text: pdbText || '',
       report: result.report,
@@ -716,9 +761,87 @@ function PipelineContent() {
               </StepCard>
             )}
 
-            {/* Step 5: Report */}
+            {/* Step 5: ADMET */}
             {stepStatus(4) !== 'pending' && (
               <StepCard key="step-5" label={STEP_LABELS[4]} index={4} status={stepStatus(4)} message={stepMessage(4)}>
+                {stepStatus(4) === 'complete' && admetData.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.4, ease }}
+                  >
+                    {/* Mini radar charts row */}
+                    <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-thin">
+                      {admetData.map((a, i) => (
+                        <motion.div
+                          key={a.drug_name || i}
+                          initial={{ opacity: 0, scale: 0.6 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ duration: 0.4, delay: i * 0.1, ease }}
+                          className={`relative shrink-0 rounded-xl border p-2 ${
+                            a.pass_fail === 'fail'
+                              ? 'border-red-500/20 bg-red-500/[0.04]'
+                              : a.pass_fail === 'warn'
+                              ? 'border-yellow-500/20 bg-yellow-500/[0.04]'
+                              : 'border-emerald-500/15 bg-emerald-500/[0.03]'
+                          }`}
+                        >
+                          {/* Green glow for passed */}
+                          {a.pass_fail === 'pass' && (
+                            <motion.div
+                              className="absolute inset-0 rounded-xl"
+                              initial={{ boxShadow: '0 0 20px rgba(16,185,129,0.3)' }}
+                              animate={{ boxShadow: '0 0 0px rgba(16,185,129,0)' }}
+                              transition={{ duration: 1.5, delay: i * 0.1 }}
+                            />
+                          )}
+                          {/* Red overlay for failed */}
+                          {a.pass_fail === 'fail' && (
+                            <div className="absolute inset-0 rounded-xl bg-red-500/[0.06] pointer-events-none" />
+                          )}
+                          <ADMETRadar
+                            scores={{
+                              absorption: a.absorption,
+                              distribution: a.distribution,
+                              metabolism: a.metabolism,
+                              excretion: a.excretion,
+                              toxicity: a.toxicity,
+                              drug_likeness: a.drug_likeness,
+                            }}
+                            flags={a.flags}
+                            passFail={a.pass_fail}
+                            drugName={a.drug_name || 'Unknown'}
+                            size="small"
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Summary line */}
+                    <div className="mt-2 flex items-center gap-4 px-1">
+                      {(() => {
+                        const nPass = admetData.filter((a) => a.pass_fail === 'pass').length;
+                        const nWarn = admetData.filter((a) => a.pass_fail === 'warn').length;
+                        const nFail = admetData.filter((a) => a.pass_fail === 'fail').length;
+                        return (
+                          <>
+                            <span className="text-xs font-light text-emerald-400/70">{nPass} safe</span>
+                            <span className="text-white/15">&middot;</span>
+                            <span className="text-xs font-light text-yellow-400/70">{nWarn} caution</span>
+                            <span className="text-white/15">&middot;</span>
+                            <span className="text-xs font-light text-red-400/70">{nFail} risk detected</span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </motion.div>
+                )}
+              </StepCard>
+            )}
+
+            {/* Step 6: Report */}
+            {stepStatus(5) !== 'pending' && (
+              <StepCard key="step-6" label={STEP_LABELS[5]} index={5} status={stepStatus(5)} message={stepMessage(5)}>
                 {state.isDone && result && (
                   <motion.div
                     initial={{ opacity: 0 }}

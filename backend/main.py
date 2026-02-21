@@ -1,9 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import pipeline, targets, structures, drugs, docking, report
+from routes import pipeline, targets, structures, drugs, docking, report, admet
 
-app = FastAPI(title="Repurpose", description="AI-powered drug repurposing platform")
+
+app = FastAPI(
+    title="Repurpose",
+    description="AI-powered drug repurposing platform",
+)
+
+
+@app.on_event("startup")
+async def load_models():
+    from services.admet import load_tox21_model
+    load_tox21_model()
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +34,7 @@ app.include_router(structures.router, prefix="/api")
 app.include_router(drugs.router, prefix="/api")
 app.include_router(docking.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
+app.include_router(admet.router, prefix="/api")
 
 
 @app.get("/")

@@ -15,6 +15,7 @@ from services.rcsb import search_pdb, download_pdb, get_resolution, fetch_alphaf
 from services.chembl import search_drugs
 from services.nvidia_nim import run_diffdock_batch
 from services.claude import generate_report
+from services.admet import predict_admet_batch, build_admet_summary
 from config import get_settings
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -181,21 +182,40 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
     # Sort all docking results by confidence
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
-    # Step 6: Generate AI report using top target's docking results
-    report_text = f"# Pipeline for {disease_info['name']}\n\nTarget symbols: {', '.join(target_symbols)}\n\nStructures found: {len(structures)}\n\nDrugs found: {len(all_drugs)}\n\nSuccessful dockings: {len(all_docking_results)}"
+    # Step 5: ADMET predictions
+    admet_smiles = [dr["smiles"] for dr in all_docking_results]
+    admet_names = [dr.get("drug_name") for dr in all_docking_results]
+    admet_raw = predict_admet_batch(admet_smiles, drug_names=admet_names)
+
+    # Attach flat ADMET summary to each docking result
+    for dr, raw in zip(all_docking_results, admet_raw):
+        dr["admet"] = build_admet_summary(raw)
+
+    # Compute combined score and re-sort
+    for dr in all_docking_results:
+        dr["combined_score"] = round(
+            dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
+        )
+    all_docking_results.sort(key=lambda r: r["combined_score"], reverse=True)
+
+    # Step 6: Generate AI report
+    report_text = (
+        f"# Pipeline for {disease_info['name']}\n\n"
+        f"Target symbols: {', '.join(target_symbols)}\n\n"
+        f"Structures found: {len(structures)}\n\n"
+        f"Drugs found: {len(all_drugs)}\n\n"
+        f"Successful dockings: {len(all_docking_results)}"
+    )
 
     if all_docking_results and settings.anthropic_api_key:
         try:
-            # Build drug-to-metadata lookup
             drug_meta = {}
             for d in all_drugs:
                 if d.get("name"):
                     drug_meta[d["name"]] = d
 
-            # Use top target for the report (highest-scoring target with docking results)
             top_target = targets[0] if targets else {"symbol": "Unknown", "name": "Unknown"}
 
-            # Build report input from top docking results (up to 10)
             report_input = []
             for dr in all_docking_results[:10]:
                 meta = drug_meta.get(dr.get("drug_name", ""), {})
@@ -205,6 +225,8 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
                     "confidence_score": dr["confidence_score"],
                     "mechanism": meta.get("mechanism"),
                     "max_phase": meta.get("max_phase"),
+                    "admet": dr["admet"],
+                    "combined_score": dr["combined_score"],
                 })
 
             report_result = generate_report(
@@ -216,7 +238,6 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
 
             report_text = report_result["report_text"]
 
-            # Enrich docking results with explanations from the report
             explanation_map = {
                 c["drug_name"]: c for c in report_result.get("candidates", [])
             }
@@ -228,7 +249,25 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
 
         except Exception as e:
             print(f"Warning: Report generation failed: {e}")
-            # Keep the fallback report_text
+
+    # Build candidates list with combined ranking
+    candidates = []
+    for rank, dr in enumerate(all_docking_results, 1):
+        meta = {}
+        for d in all_drugs:
+            if d.get("name") == dr.get("drug_name"):
+                meta = d
+                break
+        candidates.append({
+            "rank": rank,
+            "drug_name": dr.get("drug_name"),
+            "smiles": dr["smiles"],
+            "confidence_score": dr["confidence_score"],
+            "combined_score": dr["combined_score"],
+            "mechanism": meta.get("mechanism"),
+            "explanation": dr.get("explanation", ""),
+            "admet": dr["admet"],
+        })
 
     return PipelineResult(
         disease=disease_info["name"],
@@ -236,6 +275,7 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
         structures=structures,
         drugs=all_drugs,
         docking_results=all_docking_results,
+        candidates=candidates,
         report=report_text,
     )
 
@@ -370,12 +410,46 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         dr["confidence_score"] = round(max(0.0, min(1.0, (raw + 5.0) / 5.0)), 4)
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
-    yield _sse_event("step", {"step": 4, "status": "complete", "data": {
-        "docking_results": all_docking_results,
-    }})
+    top_drug_name = all_docking_results[0].get("drug_name", "Unknown") if all_docking_results else "N/A"
+    top_drug_score = all_docking_results[0]["confidence_score"] if all_docking_results else 0
+    yield _sse_event("step", {"step": 4, "status": "complete",
+        "message": f"Docked {len(all_docking_results)} compounds. Top: {top_drug_name} ({top_drug_score})",
+        "data": {"docking_results": all_docking_results},
+    })
 
-    # Step 5: Report
-    yield _sse_event("step", {"step": 5, "status": "running"})
+    # Step 5: ADMET
+    yield _sse_event("step", {"step": 5, "status": "running",
+        "message": f"Running ADMET safety analysis on {len(all_docking_results)} docked compounds...",
+    })
+    admet_smiles = [dr["smiles"] for dr in all_docking_results]
+    admet_names = [dr.get("drug_name") for dr in all_docking_results]
+    admet_raw = predict_admet_batch(admet_smiles, drug_names=admet_names)
+
+    # Attach flat ADMET summary to each docking result
+    for dr, raw in zip(all_docking_results, admet_raw):
+        dr["admet"] = build_admet_summary(raw)
+
+    # Compute combined score and re-sort
+    for dr in all_docking_results:
+        dr["combined_score"] = round(
+            dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
+        )
+    all_docking_results.sort(key=lambda r: r["combined_score"], reverse=True)
+
+    n_pass = sum(1 for dr in all_docking_results if dr["admet"]["pass_fail"] == "pass")
+    n_warn = sum(1 for dr in all_docking_results if dr["admet"]["pass_fail"] == "warn")
+    n_fail = sum(1 for dr in all_docking_results if dr["admet"]["pass_fail"] == "fail")
+    admet_results = [{"drug_name": dr.get("drug_name"), **dr["admet"]} for dr in all_docking_results]
+
+    yield _sse_event("step", {"step": 5, "status": "complete",
+        "message": f"{n_pass} safe, {n_warn} caution, {n_fail} risk detected",
+        "data": {"admet_results": admet_results},
+    })
+
+    # Step 6: Report
+    yield _sse_event("step", {"step": 6, "status": "running",
+        "message": "Generating research report with safety analysis...",
+    })
     report_text = (
         f"# Pipeline for {disease_info['name']}\n\n"
         f"Target symbols: {', '.join(target_symbols)}\n\n"
@@ -401,6 +475,8 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
                     "confidence_score": dr["confidence_score"],
                     "mechanism": meta.get("mechanism"),
                     "max_phase": meta.get("max_phase"),
+                    "admet": dr["admet"],
+                    "combined_score": dr["combined_score"],
                 })
 
             report_result = generate_report(
@@ -424,9 +500,30 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         except Exception as e:
             print(f"Warning: Report generation failed: {e}")
 
-    yield _sse_event("done", {"step": 5, "status": "complete", "data": {
+    # Build candidates list with combined ranking
+    candidates = []
+    for rank, dr in enumerate(all_docking_results, 1):
+        meta = {}
+        for d in all_drugs:
+            if d.get("name") == dr.get("drug_name"):
+                meta = d
+                break
+        candidates.append({
+            "rank": rank,
+            "drug_name": dr.get("drug_name"),
+            "smiles": dr["smiles"],
+            "confidence_score": dr["confidence_score"],
+            "combined_score": dr["combined_score"],
+            "mechanism": meta.get("mechanism"),
+            "explanation": dr.get("explanation", ""),
+            "admet": dr["admet"],
+        })
+
+    yield _sse_event("done", {"step": 6, "status": "complete", "data": {
         "report": report_text,
+        "candidates": candidates,
         "docking_results": all_docking_results,
+        "admet_results": admet_results,
     }})
 
 
