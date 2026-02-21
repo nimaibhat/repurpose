@@ -81,11 +81,11 @@ async def get_molecule(client: httpx.AsyncClient, molecule_chembl_id: str) -> di
     }
 
 
-async def search_drugs(symbol: str, limit: int = 20) -> tuple[str, list[dict]]:
+async def search_drugs(symbol: str, limit: int = 50) -> tuple[str, list[dict]]:
     """Find approved/clinical drugs for a gene symbol.
 
     Returns (target_chembl_id, drugs_list).
-    Prioritises Phase 4 drugs; backfills with Phase 3 if fewer than 5 Phase 4 found.
+    Prioritises Phase 4 drugs; backfills with Phase 3 and Phase 2 if needed.
     Skips molecules without SMILES.
     """
     candidate_ids = await search_target(symbol)
@@ -122,11 +122,14 @@ async def search_drugs(symbol: str, limit: int = 20) -> tuple[str, list[dict]]:
     # Split by phase
     phase4 = [m for m in molecules if (m.get("max_phase") or 0) >= 4]
     phase3 = [m for m in molecules if (m.get("max_phase") or 0) == 3]
+    phase2 = [m for m in molecules if (m.get("max_phase") or 0) == 2]
 
-    # Prefer Phase 4; backfill with Phase 3 if too few
+    # Prefer Phase 4; backfill with Phase 3 and Phase 2 if too few
     results = phase4[:]
     if len(results) < MIN_PHASE4_COUNT:
         results.extend(phase3)
+    if len(results) < MIN_PHASE4_COUNT:
+        results.extend(phase2)
 
     # Sort: Phase 4 first, then by name
     results.sort(key=lambda d: (-(d.get("max_phase") or 0), d.get("name") or ""))
