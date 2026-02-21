@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { useEffect, useRef, useState, useCallback, useReducer, useMemo, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -59,18 +59,75 @@ interface PipelineResponse {
   report: string;
 }
 
+// ─── SSE Reducer ────────────────────────────────────────────────────────────
+
+type StepStatus = 'pending' | 'running' | 'complete' | 'error';
+
+interface PipelineState {
+  stepStatuses: StepStatus[];
+  stepData: Array<Record<string, any> | null>;
+  error: string | null;
+  isDone: boolean;
+}
+
+type PipelineAction =
+  | { type: 'STEP_RUNNING'; step: number }
+  | { type: 'STEP_COMPLETE'; step: number; data: Record<string, any> }
+  | { type: 'STEP_ERROR'; step: number; message: string }
+  | { type: 'DONE'; step: number; data: Record<string, any> }
+  | { type: 'FETCH_ERROR'; message: string };
+
+const initialState: PipelineState = {
+  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending'],
+  stepData: [null, null, null, null, null],
+  error: null,
+  isDone: false,
+};
+
+function pipelineReducer(state: PipelineState, action: PipelineAction): PipelineState {
+  switch (action.type) {
+    case 'STEP_RUNNING': {
+      const stepStatuses = [...state.stepStatuses];
+      stepStatuses[action.step - 1] = 'running';
+      return { ...state, stepStatuses };
+    }
+    case 'STEP_COMPLETE': {
+      const stepStatuses = [...state.stepStatuses];
+      const stepData = [...state.stepData];
+      stepStatuses[action.step - 1] = 'complete';
+      stepData[action.step - 1] = action.data;
+      return { ...state, stepStatuses, stepData };
+    }
+    case 'STEP_ERROR': {
+      const stepStatuses = [...state.stepStatuses];
+      stepStatuses[action.step - 1] = 'error';
+      return { ...state, stepStatuses, error: action.message };
+    }
+    case 'DONE': {
+      const stepStatuses = [...state.stepStatuses];
+      const stepData = [...state.stepData];
+      stepStatuses[action.step - 1] = 'complete';
+      stepData[action.step - 1] = action.data;
+      return { ...state, stepStatuses, stepData, isDone: true };
+    }
+    case 'FETCH_ERROR':
+      return { ...state, error: action.message };
+    default:
+      return state;
+  }
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'Report'];
 const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'file-text'];
-const STEP_RUNNING_MSGS = [
-  'Discovering protein targets...',
-  'Retrieving protein structures...',
-  'Searching for drug candidates...',
-  'Running molecular docking simulations...',
-  'Generating analysis report...',
+const STEP_SUB_MESSAGES: string[][] = [
+  ['Querying Open Targets database...', 'Ranking disease-gene associations...'],
+  ['Searching RCSB PDB database...', 'Downloading protein structures...', 'Trying AlphaFold fallback...'],
+  ['Querying ChEMBL database...', 'Finding approved compounds...', 'Extracting molecular data...'],
+  ['Preparing protein-ligand pairs...', 'Running DiffDock simulations...', 'Scoring binding poses...', 'Computing confidence scores...'],
+  ['Analyzing top docking results...', 'Generating AI-powered report...', 'Formatting recommendations...'],
 ];
-const PHASE_DELAYS = [0, 3000, 5000, 4000, 8000, 4000]; // ms before moving to next phase
 
 const ease = [0.16, 1, 0.3, 1] as const;
 
@@ -78,6 +135,63 @@ const glassStyle = {
   background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
   boxShadow: '0 0 80px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.05)',
 };
+
+// ─── SSE Parser ─────────────────────────────────────────────────────────────
+
+async function consumeSSEStream(
+  response: Response,
+  dispatch: React.Dispatch<PipelineAction>,
+) {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Split on double-newline boundaries (SSE event delimiter)
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop()!; // keep incomplete trailing chunk
+
+    for (const part of parts) {
+      if (!part.trim()) continue;
+
+      let eventType = 'message';
+      let dataStr = '';
+
+      for (const line of part.split('\n')) {
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          dataStr += line.slice(6);
+        }
+      }
+
+      if (!dataStr) continue;
+
+      let payload: any;
+      try {
+        payload = JSON.parse(dataStr);
+      } catch {
+        continue;
+      }
+
+      const { step, status, data, message } = payload;
+
+      if (eventType === 'done') {
+        dispatch({ type: 'DONE', step, data });
+      } else if (status === 'running') {
+        dispatch({ type: 'STEP_RUNNING', step });
+      } else if (status === 'complete') {
+        dispatch({ type: 'STEP_COMPLETE', step, data });
+      } else if (status === 'error') {
+        dispatch({ type: 'STEP_ERROR', step, message });
+      }
+    }
+  }
+}
 
 // ─── Step Card Shell ────────────────────────────────────────────────────────
 
@@ -149,13 +263,14 @@ function PipelineContent() {
   const drugName = searchParams.get('drug_name') || '';
   const maxCandidates = parseInt(searchParams.get('max_candidates') || '25', 10);
 
-  // Core state
-  const [phase, setPhase] = useState(1); // 1-5 = simulated step, 6 = done
-  const [result, setResult] = useState<PipelineResponse | null>(null);
+  // SSE-driven state
+  const [state, dispatch] = useReducer(pipelineReducer, initialState);
+
+  // UI state
   const [pdbText, setPdbText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [selectedDocking, setSelectedDocking] = useState(0);
+  const [subMsgIndex, setSubMsgIndex] = useState(0);
 
   const hasStarted = useRef(false);
   const startTimeRef = useRef(Date.now());
@@ -176,20 +291,19 @@ function PipelineContent() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
-  // Stop timer when done
+  // Stop timer when done or errored
   useEffect(() => {
-    if ((result || error) && timerRef.current) clearInterval(timerRef.current);
-  }, [result, error]);
+    if ((state.isDone || state.error) && timerRef.current) clearInterval(timerRef.current);
+  }, [state.isDone, state.error]);
 
-  // Simulated step progression while waiting for response
+  // Cycle sub-messages for running steps
   useEffect(() => {
-    if (result || error || phase > 5) return;
-    const delay = PHASE_DELAYS[phase] || 3000;
-    const timer = setTimeout(() => setPhase((p) => Math.min(p + 1, 5)), delay);
-    return () => clearTimeout(timer);
-  }, [phase, result, error]);
+    if (state.isDone || state.error) return;
+    const interval = setInterval(() => setSubMsgIndex((i) => i + 1), 4000);
+    return () => clearInterval(interval);
+  }, [state.isDone, state.error]);
 
-  // Fetch from batch endpoint
+  // SSE stream fetch
   useEffect(() => {
     if (!disease || hasStarted.current) return;
     hasStarted.current = true;
@@ -198,7 +312,7 @@ function PipelineContent() {
 
     (async () => {
       try {
-        const resp = await fetch('http://localhost:8000/api/pipeline/', {
+        const resp = await fetch('http://localhost:8000/api/pipeline/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -213,16 +327,14 @@ function PipelineContent() {
 
         if (!resp.ok) {
           const detail = await resp.text().catch(() => '');
-          setError(`Server error ${resp.status}: ${detail}`);
+          dispatch({ type: 'FETCH_ERROR', message: `Server error ${resp.status}: ${detail}` });
           return;
         }
 
-        const data: PipelineResponse = await resp.json();
-        setResult(data);
-        setPhase(6);
+        await consumeSSEStream(resp, dispatch);
       } catch (err: any) {
         if (err.name !== 'AbortError') {
-          setError(err.message || 'Connection failed');
+          dispatch({ type: 'FETCH_ERROR', message: err.message || 'Connection failed' });
         }
       }
     })();
@@ -230,9 +342,24 @@ function PipelineContent() {
     return () => abortController.abort();
   }, [disease, mode, targetSymbol, drugName, maxCandidates]);
 
-  // Fetch PDB text from RCSB when result arrives
+  // Reconstruct full result from accumulated step data
+  const result = useMemo<PipelineResponse | null>(() => {
+    if (!state.isDone) return null;
+    const [s1, s2, s3, s4, s5] = state.stepData;
+    if (!s1 || !s2 || !s3 || !s4 || !s5) return null;
+    return {
+      disease: s1.disease,
+      targets: s1.targets,
+      structures: s2.structures,
+      drugs: s3.drugs,
+      // Step 5 (done) returns enriched docking_results with explanations
+      docking_results: s5.docking_results || s4.docking_results,
+      report: s5.report,
+    };
+  }, [state.isDone, state.stepData]);
+
+  // Fetch PDB text from RCSB when structures arrive
   const fetchPdb = useCallback(async (pdbId: string) => {
-    // AlphaFold IDs start with "AF-"
     const url = pdbId.startsWith('AF-')
       ? `https://alphafold.ebi.ac.uk/files/${pdbId}-model_v4.pdb`
       : `https://files.rcsb.org/download/${pdbId}.pdb`;
@@ -245,44 +372,84 @@ function PipelineContent() {
     }
   }, []);
 
+  // Trigger PDB fetch as soon as structures step completes
   useEffect(() => {
-    if (!result || pdbText) return;
-    const topStructure = result.structures[0];
+    if (pdbText) return;
+    const structData = state.stepData[1];
+    if (!structData?.structures?.length) return;
+    const topStructure = structData.structures[0];
     if (topStructure?.pdb_id) fetchPdb(topStructure.pdb_id);
-  }, [result, pdbText, fetchPdb]);
+  }, [state.stepData, pdbText, fetchPdb]);
 
-  // Build candidates by merging docking_results with drug data
-  const topTarget = result?.targets[0];
-  const topStructure = result?.structures[0];
+  // Step status & message helpers
+  const stepStatus = (i: number): StepStatus => state.stepStatuses[i];
 
-  const drugMap = new Map<string, Drug>();
-  result?.drugs.forEach((d) => {
-    if (d.name) drugMap.set(d.name, d);
-  });
+  const stepMessage = (i: number): string => {
+    const s = stepStatus(i);
+    if (s === 'error') return state.error || 'An error occurred';
+    if (s === 'running') {
+      const msgs = STEP_SUB_MESSAGES[i];
+      return msgs[subMsgIndex % msgs.length];
+    }
+    if (s === 'complete') {
+      const d = state.stepData[i];
+      if (d) {
+        switch (i) {
+          case 0: return `Found ${d.targets.length} target${d.targets.length !== 1 ? 's' : ''}: ${d.targets.map((t: any) => t.symbol).join(', ')}`;
+          case 1: return `Retrieved ${d.structures.length} structure${d.structures.length !== 1 ? 's' : ''}`;
+          case 2: return `Found ${d.drugs.length} drug candidate${d.drugs.length !== 1 ? 's' : ''}`;
+          case 3: return `Docked ${d.docking_results.length} compound${d.docking_results.length !== 1 ? 's' : ''} successfully`;
+          case 4: return 'Report generated';
+        }
+      }
+      return 'Complete';
+    }
+    return '';
+  };
 
-  const candidates = (result?.docking_results || []).map((dr, i) => {
-    const drug = drugMap.get(dr.drug_name || '');
-    return {
-      rank: i + 1,
+  // Progressive data accessors — render from stepData as it arrives
+  const targetsData: TargetHit[] = state.stepData[0]?.targets || [];
+  const structuresData: Structure[] = state.stepData[1]?.structures || [];
+  const drugsData: Drug[] = state.stepData[2]?.drugs || [];
+  const dockingData: DockingResult[] = (state.stepData[4]?.docking_results || state.stepData[3]?.docking_results || []);
+
+  // Build candidates from progressive data
+  const drugMap = useMemo(() => {
+    const m = new Map<string, Drug>();
+    drugsData.forEach((d) => { if (d.name) m.set(d.name, d); });
+    return m;
+  }, [drugsData]);
+
+  const candidates = useMemo(() => {
+    return dockingData.map((dr: DockingResult, i: number) => {
+      const drug = drugMap.get(dr.drug_name || '');
+      return {
+        rank: i + 1,
+        drug_name: dr.drug_name || 'Unknown',
+        smiles: dr.smiles,
+        confidence_score: dr.confidence_score,
+        mechanism: drug?.mechanism || undefined,
+        max_phase: drug?.max_phase,
+        explanation: dr.explanation || '',
+        risk_benefit: dr.risk_benefit || '',
+      };
+    });
+  }, [dockingData, drugMap]);
+
+  const dockingViewData = useMemo(() => {
+    return dockingData.map((dr: DockingResult) => ({
       drug_name: dr.drug_name || 'Unknown',
-      smiles: dr.smiles,
-      confidence_score: dr.confidence_score,
-      mechanism: drug?.mechanism || undefined,
-      max_phase: drug?.max_phase,
-      explanation: dr.explanation || '',
-      risk_benefit: dr.risk_benefit || '',
-    };
-  });
-
-  const dockingData = (result?.docking_results || []).map((dr) => ({
-    drug_name: dr.drug_name || 'Unknown',
-    ligand_sdf: dr.ligand_sdf,
-  }));
+      ligand_sdf: dr.ligand_sdf,
+    }));
+  }, [dockingData]);
 
   // Store results in sessionStorage for the results page
   useEffect(() => {
     if (!result || hasStoredResults.current) return;
     hasStoredResults.current = true;
+
+    const topTarget = result.targets[0];
+    const topStructure = result.structures[0];
 
     const payload = {
       disease: result.disease,
@@ -292,10 +459,9 @@ function PipelineContent() {
         pdb_id: topStructure?.pdb_id || '',
       },
       candidates,
-      docking_data: dockingData,
+      docking_data: dockingViewData,
       pdb_text: pdbText || '',
       report: result.report,
-      // Multi-target data for heatmap
       all_targets: result.targets,
       all_structures: result.structures,
       all_drugs: result.drugs,
@@ -307,7 +473,7 @@ function PipelineContent() {
     } catch {
       // sessionStorage might be full; best-effort
     }
-  }, [result, pdbText, topTarget, topStructure, candidates, dockingData]);
+  }, [result, pdbText, candidates, dockingViewData]);
 
   // Re-store when pdbText arrives (it may come after the result)
   useEffect(() => {
@@ -322,38 +488,11 @@ function PipelineContent() {
     } catch { /* best-effort */ }
   }, [pdbText, result]);
 
-  // Step status derivation
-  const stepStatus = (i: number): 'pending' | 'running' | 'complete' | 'error' => {
-    if (error && phase <= i + 1) return i + 1 === phase ? 'error' : 'pending';
-    if (result) return 'complete';
-    if (i + 1 < phase) return 'complete';
-    if (i + 1 === phase) return 'running';
-    return 'pending';
-  };
-
-  const stepMessage = (i: number): string => {
-    const s = stepStatus(i);
-    if (s === 'error') return error || 'An error occurred';
-    if (s === 'running') return STEP_RUNNING_MSGS[i];
-    if (s === 'complete' && result) {
-      switch (i) {
-        case 0: return `Found ${result.targets.length} target${result.targets.length !== 1 ? 's' : ''}: ${result.targets.map((t) => t.symbol).join(', ')}`;
-        case 1: return `Retrieved ${result.structures.length} structure${result.structures.length !== 1 ? 's' : ''}`;
-        case 2: return `Found ${result.drugs.length} drug candidate${result.drugs.length !== 1 ? 's' : ''}`;
-        case 3: return `Docked ${result.docking_results.length} compound${result.docking_results.length !== 1 ? 's' : ''} successfully`;
-        case 4: return 'Report generated';
-        default: return '';
-      }
-    }
-    if (s === 'complete') return 'Complete';
-    return '';
-  };
-
   // Timer string
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
   const timerStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  const isDone = !!result || !!error;
+  const isDone = state.isDone || !!state.error;
 
   if (!disease) return null;
 
@@ -421,14 +560,14 @@ function PipelineContent() {
         </motion.div>
 
         {/* Error */}
-        {error && (
+        {state.error && (
           <motion.div
             className="max-w-2xl mx-auto px-8 mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
             <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.05] p-6 backdrop-blur-xl text-center">
-              <p className="text-sm font-light text-red-400/80 mb-4">{error}</p>
+              <p className="text-sm font-light text-red-400/80 mb-4">{state.error}</p>
               <button
                 onClick={() => window.location.reload()}
                 className="px-5 py-2 rounded-lg border border-red-500/20 bg-red-500/[0.08] text-xs font-light tracking-[0.1em] uppercase text-red-400/80 hover:bg-red-500/[0.15] transition-colors duration-300"
@@ -445,14 +584,14 @@ function PipelineContent() {
             {/* Step 1: Targets */}
             {stepStatus(0) !== 'pending' && (
               <StepCard key="step-1" label={STEP_LABELS[0]} index={0} status={stepStatus(0)} message={stepMessage(0)}>
-                {result && result.targets.length > 0 && (
+                {stepStatus(0) === 'complete' && targetsData.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ duration: 0.4, ease }}
                     className="flex flex-wrap gap-2"
                   >
-                    {result.targets.map((t) => (
+                    {targetsData.map((t) => (
                       <div
                         key={t.symbol}
                         className="inline-flex items-center gap-3 px-4 py-2.5 rounded-xl border border-blue-500/15 bg-blue-500/[0.05]"
@@ -472,7 +611,7 @@ function PipelineContent() {
             {/* Step 2: Structures */}
             {stepStatus(1) !== 'pending' && (
               <StepCard key="step-2" label={STEP_LABELS[1]} index={1} status={stepStatus(1)} message={stepMessage(1)}>
-                {result && pdbText && (
+                {stepStatus(1) === 'complete' && pdbText && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -485,9 +624,9 @@ function PipelineContent() {
                       proteinStyle="cartoon"
                       autoRotate
                     />
-                    {result.structures.length > 0 && (
+                    {structuresData.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-3">
-                        {result.structures.map((s) => (
+                        {structuresData.map((s) => (
                           <span key={s.pdb_id} className="text-[0.6rem] font-light text-white/25 tracking-wide">
                             {s.symbol}: {s.pdb_id}
                             {s.resolution && ` (${s.resolution}\u00C5)`}
@@ -504,7 +643,7 @@ function PipelineContent() {
             {/* Step 3: Drugs */}
             {stepStatus(2) !== 'pending' && (
               <StepCard key="step-3" label={STEP_LABELS[2]} index={2} status={stepStatus(2)} message={stepMessage(2)}>
-                {candidates.length > 0 && (
+                {stepStatus(2) === 'complete' && candidates.length > 0 && (
                   <motion.div
                     className="grid grid-cols-3 gap-3 mt-2"
                     initial="hidden"
@@ -533,18 +672,18 @@ function PipelineContent() {
             {/* Step 4: Docking */}
             {stepStatus(3) !== 'pending' && (
               <StepCard key="step-4" label={STEP_LABELS[3]} index={3} status={stepStatus(3)} message={stepMessage(3)}>
-                {pdbText && dockingData.length > 0 && (
+                {stepStatus(3) === 'complete' && pdbText && dockingViewData.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ duration: 0.4, ease }}
                   >
-                    {dockingData.length > 1 && (
+                    {dockingViewData.length > 1 && (
                       <div className="flex items-center gap-2 mb-3 flex-wrap">
                         <span className="text-[0.6rem] font-light text-white/25 tracking-wide uppercase">
                           Viewing:
                         </span>
-                        {dockingData.slice(0, 8).map((d, i) => (
+                        {dockingViewData.slice(0, 8).map((d, i) => (
                           <button
                             key={i}
                             onClick={() => setSelectedDocking(i)}
@@ -561,7 +700,7 @@ function PipelineContent() {
                     )}
                     <MolViewer
                       proteinPdb={pdbText}
-                      ligandSdf={dockingData[selectedDocking]?.ligand_sdf}
+                      ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
                       width="600px"
                       height="400px"
                       proteinStyle="surface"
@@ -575,7 +714,7 @@ function PipelineContent() {
             {/* Step 5: Report */}
             {stepStatus(4) !== 'pending' && (
               <StepCard key="step-5" label={STEP_LABELS[4]} index={4} status={stepStatus(4)} message={stepMessage(4)}>
-                {result && (
+                {state.isDone && result && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
