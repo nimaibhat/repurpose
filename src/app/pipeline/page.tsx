@@ -339,7 +339,10 @@ function PipelineContent() {
       }
     })();
 
-    return () => abortController.abort();
+    return () => {
+      abortController.abort();
+      hasStarted.current = false;
+    };
   }, [disease, mode, targetSymbol, drugName, maxCandidates]);
 
   // Reconstruct full result from accumulated step data
