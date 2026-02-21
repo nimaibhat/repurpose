@@ -277,6 +277,7 @@ export default function ResearchPage() {
   const [drugName, setDrugName] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [admetStrict, setAdmetStrict] = useState(true);
+  const [maxTargets, setMaxTargets] = useState(5);
   const [maxCandidates, setMaxCandidates] = useState(25);
 
   const handleRunAnalysis = () => {
@@ -284,6 +285,7 @@ export default function ResearchPage() {
     const params = new URLSearchParams({
       disease: cancerType,
       mode: focusMode,
+      max_targets: String(maxTargets),
       max_candidates: String(maxCandidates),
     });
     if (focusMode === 'target' && proteinTarget) {
@@ -495,6 +497,41 @@ export default function ResearchPage() {
                               </button>
                             );
                           })}
+                        </div>
+                      </div>
+
+                      {/* Max Targets */}
+                      <div>
+                        <p className="text-xs font-light tracking-[0.12em] uppercase text-white/60 mb-2.5">
+                          Target Proteins to Fetch
+                        </p>
+                        <div className="flex items-center gap-2 mb-3">
+                          {[3, 5, 10, 25].map((n) => (
+                            <button
+                              key={n}
+                              className={`px-4 py-2 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
+                                maxTargets === n
+                                  ? 'border-white/15 bg-white/[0.06] text-white/70'
+                                  : 'border-white/[0.05] bg-transparent text-white/45 hover:text-white/60 hover:border-white/[0.1]'
+                                }`}
+                              onClick={() => setMaxTargets(n)}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range"
+                            min={1}
+                            max={200}
+                            value={maxTargets}
+                            onChange={(e) => setMaxTargets(parseInt(e.target.value, 10))}
+                            className="flex-1 h-1 appearance-none bg-white/[0.08] rounded-full cursor-pointer accent-blue-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400"
+                          />
+                          <span className="text-sm font-mono font-light text-white/50 tabular-nums w-8 text-right">
+                            {maxTargets}
+                          </span>
                         </div>
                       </div>
 

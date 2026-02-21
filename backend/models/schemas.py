@@ -7,6 +7,7 @@ class PipelineRequest(BaseModel):
     mode: str = "explore"  # "explore" | "target" | "drug"
     target_symbol: str | None = None
     drug_name: str | None = None
+    max_targets: int = 5
     max_candidates: int = 25
 
 
