@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
+import { supabase } from '@/lib/supabase';
 
 const WaveField = dynamic(() => import('@/components/WaveField'), { ssr: false });
 
@@ -376,6 +377,24 @@ export default function ResearchPage() {
   const [status, setStatus] = useState<Status>('idle');
   const [results, setResults] = useState<PipelineResult | null>(null);
   const [error, setError] = useState('');
+  const [recentProteins, setRecentProteins] = useState<string[]>([]);
+
+  useEffect(() => {
+    async function fetchRecentProteins() {
+      const { data, error } = await supabase
+        .from('protein_registry')
+        .select('display_name, target_id')
+        .order('created_at', { ascending: false })
+        .limit(3);
+
+      if (!error && data && data.length > 0) {
+        setRecentProteins(
+          data.map((r) => r.display_name).filter(Boolean) as string[]
+        );
+      }
+    }
+    fetchRecentProteins();
+  }, []);
 
   const runAnalysis = async () => {
     if (!cancerType) return;
@@ -472,7 +491,18 @@ export default function ResearchPage() {
                     <motion.div key="target-input" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}>
                       <div className="mt-5">
                         <p className="text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">Protein Target</p>
-                        <SearchDropdown options={PROTEIN_TARGETS} value={proteinTarget} onChange={setProteinTarget} placeholder="Select protein target..." />
+                        <SearchDropdown
+                          options={[
+                            // Recent proteins from Supabase first; fall back to
+                            // hardcoded list when the registry is empty.
+                            ...recentProteins,
+                            // Append hardcoded entries that aren't already in recent list
+                            ...PROTEIN_TARGETS.filter((t) => !recentProteins.includes(t)),
+                          ]}
+                          value={proteinTarget}
+                          onChange={setProteinTarget}
+                          placeholder="Select protein target..."
+                        />
                       </div>
                     </motion.div>
                   )}

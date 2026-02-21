@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     nvidia_nim_api_key: str = ""
     anthropic_api_key: str = ""
     ncbi_api_key: str = ""
+    supabase_url: str = ""
+    supabase_service_key: str = ""
 
     model_config = {"env_file": [".env", "../.env"], "extra": "ignore"}
 
