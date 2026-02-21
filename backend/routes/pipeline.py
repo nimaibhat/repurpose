@@ -130,6 +130,13 @@ async def run_pipeline(request: PipelineRequest):
             print(f"Warning: Docking failed for {symbol}: {e}")
             continue
 
+    # Normalize DiffDock confidence scores from raw (negative, 0 = best)
+    # to 0-1 range (1.0 = best). Linear map: 0 → 1.0, -5 → 0.0, clamped.
+    for dr in all_docking_results:
+        raw = dr["confidence_score"]
+        dr["raw_confidence"] = raw
+        dr["confidence_score"] = round(max(0.0, min(1.0, (raw + 5.0) / 5.0)), 4)
+
     # Sort all docking results by confidence
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
