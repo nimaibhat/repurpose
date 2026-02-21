@@ -261,6 +261,7 @@ function PipelineContent() {
   const mode = searchParams.get('mode') || 'explore';
   const targetSymbol = searchParams.get('target_symbol') || '';
   const drugName = searchParams.get('drug_name') || '';
+  const maxTargets = parseInt(searchParams.get('max_targets') || '5', 10);
   const maxCandidates = parseInt(searchParams.get('max_candidates') || '25', 10);
 
   // SSE-driven state
@@ -320,6 +321,7 @@ function PipelineContent() {
             mode,
             target_symbol: targetSymbol || undefined,
             drug_name: drugName || undefined,
+            max_targets: maxTargets,
             max_candidates: maxCandidates,
           }),
           signal: abortController.signal,
@@ -343,7 +345,7 @@ function PipelineContent() {
       abortController.abort();
       hasStarted.current = false;
     };
-  }, [disease, mode, targetSymbol, drugName, maxCandidates]);
+  }, [disease, mode, targetSymbol, drugName, maxTargets, maxCandidates]);
 
   // Reconstruct full result from accumulated step data
   const result = useMemo<PipelineResponse | null>(() => {

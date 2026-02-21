@@ -83,7 +83,7 @@ async def run_pipeline(request: PipelineRequest):
     # Step 1: Get targets from Open Targets
     try:
         disease_info = await search_disease(request.disease)
-        targets = await get_associated_targets(disease_info["id"])
+        targets = await get_associated_targets(disease_info["id"], max_targets=request.max_targets)
     except OpenTargetsError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -249,7 +249,7 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
     yield _sse_event("step", {"step": 1, "status": "running"})
     try:
         disease_info = await search_disease(request.disease)
-        targets = await get_associated_targets(disease_info["id"])
+        targets = await get_associated_targets(disease_info["id"], max_targets=request.max_targets)
     except OpenTargetsError as e:
         yield _sse_event("step", {"step": 1, "status": "error", "message": str(e)})
         return
