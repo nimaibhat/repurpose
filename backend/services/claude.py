@@ -16,7 +16,7 @@ SYSTEM_PROMPT = (
 )
 
 MODEL = "claude-sonnet-4-20250514"
-MAX_TOKENS = 2000
+MAX_TOKENS = 4000
 
 
 def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
@@ -85,6 +85,14 @@ def generate_report(
             candidates = json.loads(json_str)
         except (IndexError, json.JSONDecodeError) as e:
             logger.warning("Failed to parse candidates JSON: %s", e)
+            # Retry: strip trailing commas and fix common JSON issues
+            try:
+                import re
+                cleaned = re.sub(r',\s*([}\]])', r'\1', json_str)  # trailing commas
+                cleaned = re.sub(r'[\x00-\x1f]', ' ', cleaned)     # control chars
+                candidates = json.loads(cleaned)
+            except Exception:
+                logger.warning("Retry parse also failed, returning empty candidates")
 
     # Extract report text (everything before the JSON block)
     report_text = full_text.split("```json")[0].strip() if "```json" in full_text else full_text

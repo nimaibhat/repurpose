@@ -4,15 +4,10 @@ from pydantic import BaseModel
 # --- Pipeline ---
 class PipelineRequest(BaseModel):
     disease: str
-
-
-class PipelineResult(BaseModel):
-    disease: str
-    targets: list[dict]
-    structures: list[dict]
-    drugs: list[dict]
-    docking_results: list[dict]
-    report: str
+    mode: str = "explore"  # "explore" | "target" | "drug"
+    target_symbol: str | None = None
+    drug_name: str | None = None
+    max_candidates: int = 10
 
 
 # --- Targets ---
@@ -106,3 +101,13 @@ class CandidateExplanation(BaseModel):
 class ReportResponse(BaseModel):
     report_text: str
     candidates: list[CandidateExplanation]
+
+
+# --- Full Pipeline Result ---
+class PipelineResult(BaseModel):
+    disease: str
+    targets: list[dict]
+    structures: list[dict]
+    drugs: list[dict]
+    docking_results: list[dict]
+    report: str
