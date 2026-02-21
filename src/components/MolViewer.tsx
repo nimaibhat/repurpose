@@ -88,7 +88,7 @@ export default function MolViewer({
       containerRef.current.innerHTML = '';
 
       const viewer = $3Dmol.createViewer(containerRef.current, {
-        backgroundColor: 'transparent',
+        backgroundColor: 'black',
         antialias: true,
       });
       viewerRef.current = viewer;
