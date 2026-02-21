@@ -1,3 +1,4 @@
+import asyncio
 import json as json_mod
 from pathlib import Path
 from typing import AsyncGenerator
@@ -25,13 +26,68 @@ STRUCTURES_DIR = Path(__file__).parent.parent / "data" / "structures"
 STRUCTURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
+async def fetch_structure_for_symbol(symbol: str) -> dict | None:
+    """Fetch structure for a single protein symbol."""
+    try:
+        # Try RCSB first
+        pdb_id = await search_pdb(symbol)
+        if pdb_id:
+            pdb_text = await download_pdb(pdb_id)
+            resolution = await get_resolution(pdb_id)
+
+            # Save PDB file to disk
+            pdb_file_path = STRUCTURES_DIR / f"{pdb_id}.pdb"
+            pdb_file_path.write_text(pdb_text)
+
+            return {
+                "symbol": symbol,
+                "pdb_id": pdb_id,
+                "resolution": resolution,
+                "source": "rcsb",
+                "file_path": str(pdb_file_path),
+            }
+        else:
+            # Fallback to AlphaFold
+            uniprot_id, pdb_text = await fetch_alphafold_pdb(symbol)
+            af_id = f"AF-{uniprot_id}-F1"
+
+            # Save AlphaFold PDB file to disk
+            pdb_file_path = STRUCTURES_DIR / f"{af_id}.pdb"
+            pdb_file_path.write_text(pdb_text)
+
+            return {
+                "symbol": symbol,
+                "pdb_id": af_id,
+                "resolution": None,
+                "source": "alphafold",
+                "file_path": str(pdb_file_path),
+            }
+    except Exception as e:
+        print(f"Warning: Could not fetch structure for {symbol}: {e}")
+        return None
+
+
+async def fetch_drugs_for_symbol(symbol: str) -> list[dict]:
+    """Fetch drugs for a single protein symbol."""
+    try:
+        target_chembl_id, drugs = await search_drugs(symbol, limit=50)
+        # Add the symbol and target_chembl_id to each drug for tracking
+        for drug in drugs:
+            drug["target_symbol"] = symbol
+            drug["target_chembl_id"] = target_chembl_id
+        return drugs
+    except Exception as e:
+        print(f"Warning: Could not fetch drugs for {symbol}: {e}")
+        return []
+
+
 @router.post("/", response_model=PipelineResult)
 async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(get_settings)):
 
     # Step 1: Disease → top protein targets
     try:
         disease_info = await search_disease(request.disease)
-        targets = await get_associated_targets(disease_info["id"])
+        targets = await get_associated_targets(disease_info["id"], max_targets=request.max_targets)
     except OpenTargetsError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -40,61 +96,37 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
     # Step 2: Extract target symbols
     target_symbols = [target["symbol"] for target in targets]
 
-    # Step 3: For each symbol, get structures from RCSB
+    # Step 3: Fetch structures in parallel (batches of 10)
+    print(f"Fetching structures for {len(target_symbols)} targets...")
     structures = []
-    for symbol in target_symbols:
-        try:
-            # Try RCSB first
-            pdb_id = await search_pdb(symbol)
-            if pdb_id:
-                pdb_text = await download_pdb(pdb_id)
-                resolution = await get_resolution(pdb_id)
+    batch_size = 10
+    for i in range(0, len(target_symbols), batch_size):
+        batch = target_symbols[i:i + batch_size]
+        batch_results = await asyncio.gather(*[fetch_structure_for_symbol(s) for s in batch])
+        structures.extend([s for s in batch_results if s is not None])
+        print(f"Processed {min(i + batch_size, len(target_symbols))}/{len(target_symbols)} structures")
 
-                # Save PDB file to disk
-                pdb_file_path = STRUCTURES_DIR / f"{pdb_id}.pdb"
-                pdb_file_path.write_text(pdb_text)
-
-                structures.append({
-                    "symbol": symbol,
-                    "pdb_id": pdb_id,
-                    "resolution": resolution,
-                    "source": "rcsb",
-                    "file_path": str(pdb_file_path),
-                })
-            else:
-                # Fallback to AlphaFold
-                uniprot_id, pdb_text = await fetch_alphafold_pdb(symbol)
-                af_id = f"AF-{uniprot_id}-F1"
-
-                # Save AlphaFold PDB file to disk
-                pdb_file_path = STRUCTURES_DIR / f"{af_id}.pdb"
-                pdb_file_path.write_text(pdb_text)
-
-                structures.append({
-                    "symbol": symbol,
-                    "pdb_id": af_id,
-                    "resolution": None,
-                    "source": "alphafold",
-                    "file_path": str(pdb_file_path),
-                })
-        except Exception as e:
-            # Skip this target if structure retrieval fails
-            print(f"Warning: Could not fetch structure for {symbol}: {e}")
-            continue
-
-    # Step 4: For each symbol, get compounds from ChEMBL
+    # Step 4: Fetch drugs in parallel (batches of 10)
+    print(f"Fetching drugs for {len(target_symbols)} targets...")
     all_drugs = []
-    for symbol in target_symbols:
-        try:
-            target_chembl_id, drugs = await search_drugs(symbol, limit=50)
-            # Add the symbol and target_chembl_id to each drug for tracking
-            for drug in drugs:
-                drug["target_symbol"] = symbol
-                drug["target_chembl_id"] = target_chembl_id
-            all_drugs.extend(drugs)
-        except Exception as e:
-            print(f"Warning: Could not fetch drugs for {symbol}: {e}")
-            continue
+    for i in range(0, len(target_symbols), batch_size):
+        batch = target_symbols[i:i + batch_size]
+        batch_results = await asyncio.gather(*[fetch_drugs_for_symbol(s) for s in batch])
+        for drugs_list in batch_results:
+            all_drugs.extend(drugs_list)
+        print(f"Processed {min(i + batch_size, len(target_symbols))}/{len(target_symbols)} drug searches")
+
+    # Deduplicate drugs by name and cap to max_candidates
+    seen_drug_names: set[str] = set()
+    capped_drugs: list[dict] = []
+    for d in all_drugs:
+        key = d.get("name") or d.get("smiles", "")
+        if key not in seen_drug_names:
+            seen_drug_names.add(key)
+            capped_drugs.append(d)
+    if len(capped_drugs) > request.max_candidates:
+        capped_drugs = capped_drugs[:request.max_candidates]
+    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates})")
 
     # Step 5: Run docking simulations
     settings = get_settings()
@@ -107,7 +139,7 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
         pdb_id = structure["pdb_id"]
 
         # Find drugs for this target
-        target_drugs = [d for d in all_drugs if d["target_symbol"] == symbol]
+        target_drugs = [d for d in capped_drugs if d["target_symbol"] == symbol]
         if not target_drugs:
             print(f"Warning: No drugs found for {symbol}, skipping docking")
             continue
@@ -221,7 +253,7 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
     yield _sse_event("step", {"step": 1, "status": "running"})
     try:
         disease_info = await search_disease(request.disease)
-        targets = await get_associated_targets(disease_info["id"])
+        targets = await get_associated_targets(disease_info["id"], max_targets=request.max_targets)
     except OpenTargetsError as e:
         yield _sse_event("step", {"step": 1, "status": "error", "message": str(e)})
         return
@@ -285,6 +317,18 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         "drugs": all_drugs,
     }})
 
+    # Deduplicate drugs by name and cap to max_candidates
+    seen_drug_names: set[str] = set()
+    capped_drugs: list[dict] = []
+    for d in all_drugs:
+        key = d.get("name") or d.get("smiles", "")
+        if key not in seen_drug_names:
+            seen_drug_names.add(key)
+            capped_drugs.append(d)
+    if len(capped_drugs) > request.max_candidates:
+        capped_drugs = capped_drugs[:request.max_candidates]
+    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates})")
+
     # Step 4: Docking
     yield _sse_event("step", {"step": 4, "status": "running"})
     if not settings.nvidia_nim_api_key:
@@ -295,7 +339,7 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
     for structure in structures:
         symbol = structure["symbol"]
         pdb_id = structure["pdb_id"]
-        target_drugs = [d for d in all_drugs if d["target_symbol"] == symbol]
+        target_drugs = [d for d in capped_drugs if d["target_symbol"] == symbol]
         if not target_drugs:
             print(f"Warning: No drugs found for {symbol}, skipping docking")
             continue

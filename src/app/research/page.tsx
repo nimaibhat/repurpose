@@ -111,7 +111,7 @@ function SearchDropdown({
         <input
           ref={inputRef}
           type="text"
-          className="flex-1 bg-transparent outline-none text-sm text-white/80 placeholder:text-white/25 font-light"
+          className="flex-1 bg-transparent outline-none text-sm text-white/80 placeholder:text-white/45 font-light"
           placeholder={value || placeholder}
           value={open ? query : value}
           onChange={(e) => { setQuery(e.target.value); if (!open) setOpen(true); }}
@@ -374,6 +374,7 @@ export default function ResearchPage() {
   const [drugName, setDrugName] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [admetStrict, setAdmetStrict] = useState(true);
+  const [maxTargets, setMaxTargets] = useState(5);
   const [maxCandidates, setMaxCandidates] = useState(25);
 
   const [status, setStatus] = useState<Status>('idle');
@@ -403,6 +404,7 @@ export default function ResearchPage() {
     const params = new URLSearchParams({
       disease: cancerType,
       mode: focusMode,
+      max_targets: String(maxTargets),
       max_candidates: String(maxCandidates),
     });
     if (focusMode === 'target' && proteinTarget) {
@@ -558,10 +560,10 @@ export default function ResearchPage() {
               transition={{ duration: 0.6, delay: 0.6 }}
             >
               <motion.button
-                className={`relative w-full py-3.5 rounded-xl text-sm font-light tracking-[0.15em] uppercase overflow-hidden border ${
+                className={`relative w-full py-4 rounded-xl text-base font-light tracking-[0.15em] uppercase overflow-hidden border ${
                   cancerType
                     ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
-                    : 'text-white/25 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
+                    : 'text-white/45 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
                 }`}
                 whileHover={cancerType ? { scale: 1.005 } : undefined}
                 whileTap={cancerType ? { scale: 0.995 } : undefined}

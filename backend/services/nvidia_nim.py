@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import time
+from collections import deque
 
 import httpx
 from rdkit import Chem
@@ -8,9 +10,36 @@ from rdkit.Chem import AllChem
 DIFFDOCK_URL = "https://health.api.nvidia.com/v1/biology/mit/diffdock"
 ASSETS_URL = "https://api.nvcf.nvidia.com/v2/nvcf/assets"
 TIMEOUT = 90.0
-MAX_CONCURRENT = 3
+MAX_CONCURRENT = 2
+RPM_LIMIT = 35  # stay under 40 RPM cap with headroom
+MAX_RETRIES = 3
 
 logger = logging.getLogger(__name__)
+
+
+class RateLimiter:
+    """Sliding-window rate limiter for async HTTP calls."""
+
+    def __init__(self, max_requests: int, window_seconds: float = 60.0):
+        self._max = max_requests
+        self._window = window_seconds
+        self._timestamps: deque[float] = deque()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        async with self._lock:
+            now = time.monotonic()
+            # Evict timestamps outside the window
+            while self._timestamps and self._timestamps[0] <= now - self._window:
+                self._timestamps.popleft()
+            if len(self._timestamps) >= self._max:
+                sleep_until = self._timestamps[0] + self._window
+                delay = sleep_until - now
+                if delay > 0:
+                    logger.info("Rate limit: sleeping %.1fs", delay)
+                    await asyncio.sleep(delay)
+                self._timestamps.popleft()
+            self._timestamps.append(time.monotonic())
 
 
 class DiffDockError(Exception):
@@ -29,8 +58,11 @@ def smiles_to_sdf(smiles: str) -> str | None:
     return Chem.MolToMolBlock(mol)
 
 
-async def _upload_asset(client: httpx.AsyncClient, api_key: str, content: str) -> str:
+async def _upload_asset(
+    client: httpx.AsyncClient, api_key: str, content: str, limiter: RateLimiter,
+) -> str:
     """Upload a file to NVCF assets and return the asset ID."""
+    await limiter.acquire()
     resp = await client.post(
         ASSETS_URL,
         headers={
@@ -42,6 +74,7 @@ async def _upload_asset(client: httpx.AsyncClient, api_key: str, content: str) -
     resp.raise_for_status()
     data = resp.json()
 
+    await limiter.acquire()
     resp = await client.put(
         data["uploadUrl"],
         content=content.encode(),
@@ -62,6 +95,7 @@ async def _dock_single(
     protein_asset_id: str,
     smiles: str,
     drug_name: str | None,
+    limiter: RateLimiter,
 ) -> dict | None:
     """Dock a single ligand against a protein. Returns best pose or None on failure."""
     # Convert SMILES to SDF
@@ -72,29 +106,42 @@ async def _dock_single(
 
     async with semaphore:
         try:
-            ligand_asset_id = await _upload_asset(client, api_key, sdf_text)
+            ligand_asset_id = await _upload_asset(client, api_key, sdf_text, limiter)
 
-            resp = await client.post(
-                DIFFDOCK_URL,
-                json={
-                    "ligand": ligand_asset_id,
-                    "ligand_file_type": "sdf",
-                    "protein": protein_asset_id,
-                    "num_poses": 5,
-                    "time_divisions": 20,
-                    "steps": 18,
-                    "save_trajectory": False,
-                    "is_staged": True,
-                },
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "NVCF-INPUT-ASSET-REFERENCES": f"{protein_asset_id},{ligand_asset_id}",
-                },
-            )
+            for attempt in range(MAX_RETRIES):
+                await limiter.acquire()
+                resp = await client.post(
+                    DIFFDOCK_URL,
+                    json={
+                        "ligand": ligand_asset_id,
+                        "ligand_file_type": "sdf",
+                        "protein": protein_asset_id,
+                        "num_poses": 5,
+                        "time_divisions": 20,
+                        "steps": 18,
+                        "save_trajectory": False,
+                        "is_staged": True,
+                    },
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "NVCF-INPUT-ASSET-REFERENCES": f"{protein_asset_id},{ligand_asset_id}",
+                    },
+                )
 
-            if resp.status_code != 200:
-                logger.warning("DiffDock %d for %s: %s", resp.status_code, drug_name or "unknown", resp.text[:500])
+                if resp.status_code == 429:
+                    wait = 2 ** attempt * 5
+                    logger.warning("Rate limited (429) for %s, retrying in %ds...", drug_name or "unknown", wait)
+                    await asyncio.sleep(wait)
+                    continue
+
+                if resp.status_code != 200:
+                    logger.warning("DiffDock %d for %s: %s", resp.status_code, drug_name or "unknown", resp.text[:500])
+                    return None
+
+                break
+            else:
+                logger.warning("DiffDock exhausted retries for %s", drug_name or "unknown")
                 return None
 
             data = resp.json()
@@ -149,12 +196,13 @@ async def run_diffdock_batch(
         List of results sorted by confidence descending. Failed drugs are skipped.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    limiter = RateLimiter(RPM_LIMIT)
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        protein_asset_id = await _upload_asset(client, api_key, pdb_text)
+        protein_asset_id = await _upload_asset(client, api_key, pdb_text, limiter)
 
         tasks = [
-            _dock_single(client, semaphore, api_key, protein_asset_id, d["smiles"], d.get("name"))
+            _dock_single(client, semaphore, api_key, protein_asset_id, d["smiles"], d.get("name"), limiter)
             for d in drugs
         ]
         results = await asyncio.gather(*tasks)

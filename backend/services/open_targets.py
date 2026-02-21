@@ -14,21 +14,22 @@ query DiseaseSearch($name: String!) {
 }
 """
 
-ASSOCIATED_TARGETS_QUERY = """
-query AssociatedTargets($efoId: String!) {
-  disease(efoId: $efoId) {
-    associatedTargets(page: {size: 200, index: 0}) {
-      rows {
-        target {
+def _targets_query(size: int) -> str:
+    return f"""
+query AssociatedTargets($efoId: String!) {{
+  disease(efoId: $efoId) {{
+    associatedTargets(page: {{size: {size}, index: 0}}) {{
+      rows {{
+        target {{
           id
           approvedSymbol
           approvedName
-        }
+        }}
         score
-      }
-    }
-  }
-}
+      }}
+    }}
+  }}
+}}
 """
 
 
@@ -55,9 +56,9 @@ async def search_disease(disease_name: str) -> dict:
     return {"id": hits[0]["id"], "name": hits[0]["name"]}
 
 
-async def get_associated_targets(efo_id: str) -> list[dict]:
-    """Get top 200 targets for a disease EFO ID, sorted by association score."""
-    data = await _post_graphql(ASSOCIATED_TARGETS_QUERY, {"efoId": efo_id})
+async def get_associated_targets(efo_id: str, max_targets: int = 5) -> list[dict]:
+    """Get top targets for a disease EFO ID, sorted by association score."""
+    data = await _post_graphql(_targets_query(max_targets), {"efoId": efo_id})
     disease = data.get("disease")
     if not disease:
         raise OpenTargetsError(f"No data for disease '{efo_id}'")
