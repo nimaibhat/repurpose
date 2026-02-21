@@ -48,11 +48,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
           viewer.setStyle({ model: 0 }, {
             cartoon: { color: 'spectrum', opacity: 0.9 },
           });
-          // Add a very subtle translucent surface
-          surfaceRef.current = viewer.addSurface($3Dmol.SurfaceType.VDW, {
-            opacity: 0.08,
-            color: 'white',
-          }, { model: 0 });
           break;
         case 'surface':
           viewer.setStyle({ model: 0 }, {
@@ -68,10 +63,6 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
             stick: { radius: 0.1, colorscheme: 'Jmol' },
             sphere: { scale: 0.25, colorscheme: 'Jmol' },
           });
-          surfaceRef.current = viewer.addSurface($3Dmol.SurfaceType.VDW, {
-            opacity: 0.08,
-            color: 'white',
-          }, { model: 0 });
           break;
       }
 
