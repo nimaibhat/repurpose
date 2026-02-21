@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
@@ -366,6 +367,7 @@ function ResultsPanel({ results, onReset }: { results: PipelineResult; onReset: 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ResearchPage() {
+  const router = useRouter();
   const [cancerType, setCancerType] = useState('');
   const [focusMode, setFocusMode] = useState<FocusMode>('explore');
   const [proteinTarget, setProteinTarget] = useState('');
@@ -396,33 +398,24 @@ export default function ResearchPage() {
     fetchRecentProteins();
   }, []);
 
-  const runAnalysis = async () => {
+  const handleRunAnalysis = () => {
     if (!cancerType) return;
-    setStatus('loading');
-    setError('');
-    setResults(null);
-    try {
-      const res = await fetch(`${BACKEND}/api/pipeline/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ disease: cancerType }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Server error ${res.status}`);
-      }
-      const data: PipelineResult = await res.json();
-      setResults(data);
-      setStatus('done');
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
-      setStatus('error');
+    const params = new URLSearchParams({
+      disease: cancerType,
+      mode: focusMode,
+      max_candidates: String(maxCandidates),
+    });
+    if (focusMode === 'target' && proteinTarget) {
+      params.set('target_symbol', proteinTarget);
     }
+    if (focusMode === 'drug' && drugName) {
+      params.set('drug_name', drugName);
+    }
+    router.push(`/pipeline?${params.toString()}`);
   };
 
-  const reset = () => { setStatus('idle'); setResults(null); setError(''); };
-
-  const showForm = status === 'idle' || status === 'error';
+  const showForm = status === 'idle';
+  const reset = () => { setStatus('idle'); setResults(null); };
 
   return (
     <div className={`relative w-screen bg-[#0a0b0f] ${status === 'done' ? 'min-h-screen' : 'h-screen overflow-hidden'}`}>
@@ -557,21 +550,34 @@ export default function ResearchPage() {
                   </AnimatePresence>
                 </motion.div>
 
-                {/* Run Analysis Button */}
-                <motion.div className="mt-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.6 }}>
-                  <motion.button
-                    onClick={runAnalysis}
-                    disabled={!cancerType}
-                    className={`relative w-full py-3.5 rounded-xl text-sm font-light tracking-[0.15em] uppercase overflow-hidden border transition-all duration-300 ${cancerType ? 'border-blue-500/20 bg-blue-500/[0.08] text-white/90 cursor-pointer' : 'border-white/[0.05] bg-transparent text-white/20 cursor-not-allowed'}`}
-                    whileHover={cancerType ? { scale: 1.005 } : {}}
-                    whileTap={cancerType ? { scale: 0.995 } : {}}
-                    style={cancerType ? { boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)' } : {}}
-                  >
-                    <span className="relative z-10">Run Analysis</span>
-                    {cancerType && <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />}
-                  </motion.button>
-                </motion.div>
-              </div>
+            {/* Run Analysis Button */}
+            <motion.div
+              className="mt-8"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.6 }}
+            >
+              <motion.button
+                className={`relative w-full py-3.5 rounded-xl text-sm font-light tracking-[0.15em] uppercase overflow-hidden border ${
+                  cancerType
+                    ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
+                    : 'text-white/25 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
+                }`}
+                whileHover={cancerType ? { scale: 1.005 } : undefined}
+                whileTap={cancerType ? { scale: 0.995 } : undefined}
+                style={
+                  cancerType
+                    ? { boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)' }
+                    : undefined
+                }
+                onClick={handleRunAnalysis}
+                disabled={!cancerType}
+              >
+                <span className="relative z-10">Run Analysis</span>
+                {cancerType && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />
+                )}
+              </motion.button>
             </motion.div>
           )}
 
