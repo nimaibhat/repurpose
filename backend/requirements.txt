@@ -4,3 +4,4 @@ pydantic-settings>=2.7
 httpx>=0.28
 anthropic>=0.43
 python-dotenv>=1.0
+rdkit>=2024.3

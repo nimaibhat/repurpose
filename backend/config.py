@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     ncbi_api_key: str = ""
 
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": [".env", "../.env"], "extra": "ignore"}
 
 
 @lru_cache

@@ -43,27 +43,33 @@ class DrugCandidate(BaseModel):
     chembl_id: str
     name: str | None = None
     smiles: str
-    phase: int | None = None
+    max_phase: int
+    mechanism: str | None = None
 
 
 class DrugsResponse(BaseModel):
-    target_id: str
+    symbol: str
+    target_chembl_id: str
     drugs: list[DrugCandidate]
 
 
 # --- Docking ---
-class DockingRequest(BaseModel):
-    pdb_id: str
+class DockingDrug(BaseModel):
+    name: str | None = None
     smiles: str
-    drug_name: str | None = None
+
+
+class DockingRequest(BaseModel):
+    pdb_text: str
+    drugs: list[DockingDrug]
 
 
 class DockingResult(BaseModel):
-    pdb_id: str
-    smiles: str
     drug_name: str | None = None
+    smiles: str
     confidence_score: float
-    pose_url: str | None = None
+    ligand_sdf: str
+    num_poses: int
 
 
 class DockingResponse(BaseModel):
