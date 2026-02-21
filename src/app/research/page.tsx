@@ -257,10 +257,10 @@ function FocusModeCard({
         />
       )}
       <Icon className={`w-5 h-5 transition-colors duration-300 ${selected ? 'text-blue-400/80' : 'text-white/30'}`} />
-      <span className={`text-xs font-light tracking-wide transition-colors duration-300 ${selected ? 'text-white/90' : 'text-white/50'}`}>
+      <span className={`text-sm font-light tracking-wide transition-colors duration-300 ${selected ? 'text-white/90' : 'text-white/50'}`}>
         {label}
       </span>
-      <span className={`text-[10px] font-light transition-colors duration-300 ${selected ? 'text-white/40' : 'text-white/20'}`}>
+      <span className={`text-xs font-light transition-colors duration-300 ${selected ? 'text-white/40' : 'text-white/20'}`}>
         {subtitle}
       </span>
     </motion.button>
@@ -306,13 +306,10 @@ export default function ResearchPage() {
       <div className="fixed inset-0 z-[1] bg-[#0a0b0f]/40" />
 
       {/* Navbar */}
-      <nav className="relative z-10 flex items-center justify-between px-8 py-5">
-        <span className="text-[0.8rem] font-extralight tracking-[0.35em] uppercase text-white/60">
+      <nav className="relative z-10 flex items-center justify-between px-10 py-6">
+        <span className="text-base font-extralight tracking-[0.35em] uppercase text-white/60">
           repurpose
         </span>
-        <button className="text-[0.65rem] font-extralight tracking-[0.2em] uppercase text-white/30 hover:text-white/60 transition-colors duration-300">
-          How it works
-        </button>
       </nav>
 
       {/* Center content */}
@@ -321,7 +318,7 @@ export default function ResearchPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          className="w-full max-w-[560px] mx-4"
+          className="w-full max-w-2xl mx-4"
         >
           {/* Input Card */}
           <div
@@ -333,7 +330,7 @@ export default function ResearchPage() {
           >
             {/* Headline */}
             <motion.h2
-              className="text-[1.35rem] font-extralight text-white/90 mb-6 tracking-wide"
+              className="text-2xl font-extralight text-white/90 mb-6 tracking-wide"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
@@ -363,7 +360,7 @@ export default function ResearchPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              <p className="text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/25 mb-3">
+              <p className="text-sm font-light tracking-[0.15em] uppercase text-white/25 mb-3">
                 Focus Mode
               </p>
               <div className="flex gap-2.5">
@@ -403,7 +400,7 @@ export default function ResearchPage() {
                   className="overflow-hidden"
                 >
                   <div className="mt-5">
-                    <p className="text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">
+                    <p className="text-sm font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">
                       Protein Target
                     </p>
                     <SearchDropdown
@@ -426,7 +423,7 @@ export default function ResearchPage() {
                   className="overflow-hidden"
                 >
                   <div className="mt-5">
-                    <p className="text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">
+                    <p className="text-sm font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">
                       Drug Name
                     </p>
                     <SearchDropdown
@@ -449,7 +446,7 @@ export default function ResearchPage() {
               transition={{ duration: 0.6, delay: 0.5 }}
             >
               <button
-                className="flex items-center gap-2 text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/20 hover:text-white/40 transition-colors duration-300 cursor-pointer"
+                className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/20 hover:text-white/40 transition-colors duration-300 cursor-pointer"
                 onClick={() => setAdvancedOpen(!advancedOpen)}
               >
                 <motion.svg
@@ -478,7 +475,7 @@ export default function ResearchPage() {
                     <div className="mt-4 space-y-5 pl-1">
                       {/* ADMET Strictness */}
                       <div>
-                        <p className="text-[0.6rem] font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">
+                        <p className="text-xs font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">
                           ADMET Strictness
                         </p>
                         <div className="flex gap-2">
@@ -487,7 +484,7 @@ export default function ResearchPage() {
                             return (
                               <button
                                 key={opt}
-                                className={`px-4 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 cursor-pointer ${
+                                className={`px-5 py-2.5 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
                                   isActive
                                     ? 'border-white/15 bg-white/[0.06] text-white/70'
                                     : 'border-white/[0.05] bg-transparent text-white/25 hover:text-white/40 hover:border-white/[0.1]'
@@ -503,14 +500,14 @@ export default function ResearchPage() {
 
                       {/* Max Candidates */}
                       <div>
-                        <p className="text-[0.6rem] font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">
+                        <p className="text-xs font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">
                           Max Candidates to Dock
                         </p>
                         <div className="flex gap-2">
                           {[10, 25, 50].map((n) => (
                             <button
                               key={n}
-                              className={`px-4 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 cursor-pointer ${
+                              className={`px-5 py-2.5 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
                                 maxCandidates === n
                                   ? 'border-white/15 bg-white/[0.06] text-white/70'
                                   : 'border-white/[0.05] bg-transparent text-white/25 hover:text-white/40 hover:border-white/[0.1]'
@@ -536,7 +533,7 @@ export default function ResearchPage() {
               transition={{ duration: 0.6, delay: 0.6 }}
             >
               <motion.button
-                className={`relative w-full py-3.5 rounded-xl text-sm font-light tracking-[0.15em] uppercase overflow-hidden border ${
+                className={`relative w-full py-4 rounded-xl text-base font-light tracking-[0.15em] uppercase overflow-hidden border ${
                   cancerType
                     ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
                     : 'text-white/25 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'

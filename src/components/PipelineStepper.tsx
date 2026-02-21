@@ -54,8 +54,8 @@ interface PipelineStepperProps {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const NODE_SIZE = 44;
-const ICON_SIZE = 18;
+const NODE_SIZE = 56;
+const ICON_SIZE = 22;
 const ease = [0.16, 1, 0.3, 1] as const;
 
 // ─── Connector Line ─────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ function ConnectorLine({
   return (
     <div
       className="flex-1 relative self-center mx-0.5"
-      style={{ height: 2, marginTop: -(NODE_SIZE / 2 + 8) }}
+      style={{ height: 3, marginTop: -(NODE_SIZE / 2 + 8) }}
     >
       {/* Track */}
       <div className="absolute inset-0 rounded-full bg-white/[0.06]" />
@@ -226,7 +226,7 @@ function StepNode({
 
       {/* Label — hides on small screens */}
       <span
-        className={`text-[0.6rem] font-light tracking-[0.15em] uppercase transition-colors duration-500 hidden sm:block ${labelClasses[step.status]}`}
+        className={`text-xs font-light tracking-[0.15em] uppercase transition-colors duration-500 hidden sm:block ${labelClasses[step.status]}`}
       >
         {step.name}
       </span>
@@ -237,7 +237,7 @@ function StepNode({
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1, ease }}
-          className="text-[0.55rem] font-light text-white/30 text-center max-w-[100px] leading-snug hidden sm:block"
+          className="text-xs font-light text-white/30 text-center max-w-[120px] leading-snug hidden sm:block"
         >
           {step.message}
         </motion.span>
