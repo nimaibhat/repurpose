@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
@@ -18,6 +19,61 @@ STRUCTURES_DIR = Path(__file__).parent.parent / "data" / "structures"
 STRUCTURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
+async def fetch_structure_for_symbol(symbol: str) -> dict | None:
+    """Fetch structure for a single protein symbol."""
+    try:
+        # Try RCSB first
+        pdb_id = await search_pdb(symbol)
+        if pdb_id:
+            pdb_text = await download_pdb(pdb_id)
+            resolution = await get_resolution(pdb_id)
+
+            # Save PDB file to disk
+            pdb_file_path = STRUCTURES_DIR / f"{pdb_id}.pdb"
+            pdb_file_path.write_text(pdb_text)
+
+            return {
+                "symbol": symbol,
+                "pdb_id": pdb_id,
+                "resolution": resolution,
+                "source": "rcsb",
+                "file_path": str(pdb_file_path),
+            }
+        else:
+            # Fallback to AlphaFold
+            uniprot_id, pdb_text = await fetch_alphafold_pdb(symbol)
+            af_id = f"AF-{uniprot_id}-F1"
+
+            # Save AlphaFold PDB file to disk
+            pdb_file_path = STRUCTURES_DIR / f"{af_id}.pdb"
+            pdb_file_path.write_text(pdb_text)
+
+            return {
+                "symbol": symbol,
+                "pdb_id": af_id,
+                "resolution": None,
+                "source": "alphafold",
+                "file_path": str(pdb_file_path),
+            }
+    except Exception as e:
+        print(f"Warning: Could not fetch structure for {symbol}: {e}")
+        return None
+
+
+async def fetch_drugs_for_symbol(symbol: str) -> list[dict]:
+    """Fetch drugs for a single protein symbol."""
+    try:
+        target_chembl_id, drugs = await search_drugs(symbol, limit=50)
+        # Add the symbol and target_chembl_id to each drug for tracking
+        for drug in drugs:
+            drug["target_symbol"] = symbol
+            drug["target_chembl_id"] = target_chembl_id
+        return drugs
+    except Exception as e:
+        print(f"Warning: Could not fetch drugs for {symbol}: {e}")
+        return []
+
+
 @router.post("/", response_model=PipelineResult)
 async def run_pipeline(request: PipelineRequest):
     # Step 1: Get targets from Open Targets
@@ -32,61 +88,25 @@ async def run_pipeline(request: PipelineRequest):
     # Step 2: Extract target symbols
     target_symbols = [target["symbol"] for target in targets]
 
-    # Step 3: For each symbol, get structures from RCSB
+    # Step 3: Fetch structures in parallel (batches of 10)
+    print(f"Fetching structures for {len(target_symbols)} targets...")
     structures = []
-    for symbol in target_symbols:
-        try:
-            # Try RCSB first
-            pdb_id = await search_pdb(symbol)
-            if pdb_id:
-                pdb_text = await download_pdb(pdb_id)
-                resolution = await get_resolution(pdb_id)
+    batch_size = 10
+    for i in range(0, len(target_symbols), batch_size):
+        batch = target_symbols[i:i + batch_size]
+        batch_results = await asyncio.gather(*[fetch_structure_for_symbol(s) for s in batch])
+        structures.extend([s for s in batch_results if s is not None])
+        print(f"Processed {min(i + batch_size, len(target_symbols))}/{len(target_symbols)} structures")
 
-                # Save PDB file to disk
-                pdb_file_path = STRUCTURES_DIR / f"{pdb_id}.pdb"
-                pdb_file_path.write_text(pdb_text)
-
-                structures.append({
-                    "symbol": symbol,
-                    "pdb_id": pdb_id,
-                    "resolution": resolution,
-                    "source": "rcsb",
-                    "file_path": str(pdb_file_path),
-                })
-            else:
-                # Fallback to AlphaFold
-                uniprot_id, pdb_text = await fetch_alphafold_pdb(symbol)
-                af_id = f"AF-{uniprot_id}-F1"
-
-                # Save AlphaFold PDB file to disk
-                pdb_file_path = STRUCTURES_DIR / f"{af_id}.pdb"
-                pdb_file_path.write_text(pdb_text)
-
-                structures.append({
-                    "symbol": symbol,
-                    "pdb_id": af_id,
-                    "resolution": None,
-                    "source": "alphafold",
-                    "file_path": str(pdb_file_path),
-                })
-        except Exception as e:
-            # Skip this target if structure retrieval fails
-            print(f"Warning: Could not fetch structure for {symbol}: {e}")
-            continue
-
-    # Step 4: For each symbol, get compounds from ChEMBL
+    # Step 4: Fetch drugs in parallel (batches of 10)
+    print(f"Fetching drugs for {len(target_symbols)} targets...")
     all_drugs = []
-    for symbol in target_symbols:
-        try:
-            target_chembl_id, drugs = await search_drugs(symbol, limit=50)
-            # Add the symbol and target_chembl_id to each drug for tracking
-            for drug in drugs:
-                drug["target_symbol"] = symbol
-                drug["target_chembl_id"] = target_chembl_id
-            all_drugs.extend(drugs)
-        except Exception as e:
-            print(f"Warning: Could not fetch drugs for {symbol}: {e}")
-            continue
+    for i in range(0, len(target_symbols), batch_size):
+        batch = target_symbols[i:i + batch_size]
+        batch_results = await asyncio.gather(*[fetch_drugs_for_symbol(s) for s in batch])
+        for drugs_list in batch_results:
+            all_drugs.extend(drugs_list)
+        print(f"Processed {min(i + batch_size, len(target_symbols))}/{len(target_symbols)} drug searches")
 
     # Step 5: Run docking simulations
     settings = get_settings()
