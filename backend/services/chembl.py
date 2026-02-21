@@ -81,11 +81,11 @@ async def get_molecule(client: httpx.AsyncClient, molecule_chembl_id: str) -> di
     }
 
 
-async def search_drugs(symbol: str, limit: int = 20) -> tuple[str, list[dict]]:
+async def search_drugs(symbol: str, limit: int = 50) -> tuple[str, list[dict]]:
     """Find approved/clinical drugs for a gene symbol.
 
     Returns (target_chembl_id, drugs_list).
-    Prioritises Phase 4 drugs; backfills with Phase 3 if fewer than 5 Phase 4 found.
+    Prioritises Phase 4 drugs; backfills with Phase 3 and Phase 2 if needed.
     Skips molecules without SMILES.
     """
     candidate_ids = await search_target(symbol)

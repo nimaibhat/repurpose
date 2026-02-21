@@ -75,7 +75,7 @@ async def run_pipeline(request: PipelineRequest):
     all_drugs = []
     for symbol in target_symbols:
         try:
-            target_chembl_id, drugs = await search_drugs(symbol, limit=20)
+            target_chembl_id, drugs = await search_drugs(symbol, limit=50)
             # Add the symbol and target_chembl_id to each drug for tracking
             for drug in drugs:
                 drug["target_symbol"] = symbol
