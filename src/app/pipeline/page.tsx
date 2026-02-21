@@ -45,6 +45,9 @@ interface DockingResult {
   num_poses?: number;
   pdb_id: string;
   target_symbol: string;
+  explanation?: string;
+  risk_benefit?: string;
+  priority_rank?: number;
 }
 
 interface PipelineResponse {
@@ -266,6 +269,8 @@ function PipelineContent() {
       confidence_score: dr.confidence_score,
       mechanism: drug?.mechanism || undefined,
       max_phase: drug?.max_phase,
+      explanation: dr.explanation || '',
+      risk_benefit: dr.risk_benefit || '',
     };
   });
 
@@ -286,11 +291,7 @@ function PipelineContent() {
         name: topTarget?.name || '',
         pdb_id: topStructure?.pdb_id || '',
       },
-      candidates: candidates.map((c) => ({
-        ...c,
-        explanation: '',
-        risk_benefit: '',
-      })),
+      candidates,
       docking_data: dockingData,
       pdb_text: pdbText || '',
       report: result.report,
