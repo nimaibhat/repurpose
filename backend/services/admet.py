@@ -60,7 +60,10 @@ def predict_tox21(smiles: str) -> float | None:
         import numpy as np
         featurizer = dc.feat.ConvMolFeaturizer()
         features = featurizer.featurize([smiles])
-        dataset = dc.data.NumpyDataset(X=features)
+        # Provide dummy y/w with correct shape for 12-task classification
+        dummy_y = np.zeros((1, 12))
+        dummy_w = np.zeros((1, 12))
+        dataset = dc.data.NumpyDataset(X=features, y=dummy_y, w=dummy_w)
         preds = _tox21_model.predict(dataset)
         # Average toxicity probability across all 12 Tox21 tasks
         tox_probs = preds[0, :, 1]  # shape: (n_tasks,) — class 1 = toxic
