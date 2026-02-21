@@ -26,6 +26,7 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const viewerRef = useRef<any>(null);
     const $3DmolRef = useRef<any>(null);
+    const proteinModelRef = useRef<any>(null);   // stable ref to protein model
     const ligandModelRef = useRef<any>(null);
     const surfaceRef = useRef<any>(null);
     const proteinStyleRef = useRef<ProteinStyle>(initialProteinStyle);
@@ -33,33 +34,36 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
     const currentLigandSdf = useRef<string | null>(initialLigandSdf || null);
     const readyRef = useRef(false);
 
-    // Apply protein style to the viewer (model 0 is always protein)
+    // Apply protein style using model object reference (not fragile index)
     const applyProteinStyle = useCallback((style: ProteinStyle) => {
       const viewer = viewerRef.current;
       const $3Dmol = $3DmolRef.current;
-      if (!viewer || !$3Dmol) return;
+      const proteinModel = proteinModelRef.current;
+      if (!viewer || !$3Dmol || !proteinModel) return;
 
-      // Remove existing surfaces
       viewer.removeAllSurfaces();
       surfaceRef.current = null;
 
+      const sel = { model: proteinModel };
+
       switch (style) {
         case 'cartoon':
-          viewer.setStyle({ model: 0 }, {
-            cartoon: { color: 'spectrum', opacity: 0.9 },
+          // Slightly transparent cartoon so ligand is visible through it
+          viewer.setStyle(sel, {
+            cartoon: { color: 'spectrum', opacity: 0.75 },
           });
           break;
         case 'surface':
-          viewer.setStyle({ model: 0 }, {
+          viewer.setStyle(sel, {
             cartoon: { color: 'spectrum', opacity: 0.3 },
           });
           surfaceRef.current = viewer.addSurface($3Dmol.SurfaceType.VDW, {
             opacity: 0.6,
             color: 'lightblue',
-          }, { model: 0 });
+          }, sel);
           break;
         case 'ballstick':
-          viewer.setStyle({ model: 0 }, {
+          viewer.setStyle(sel, {
             stick: { radius: 0.1, colorscheme: 'Jmol' },
             sphere: { scale: 0.25, colorscheme: 'Jmol' },
           });
@@ -70,12 +74,20 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       viewer.render();
     }, []);
 
-    // Add or remove ligand
+    // Style the ligand model
+    const styleLigand = useCallback((model: any) => {
+      if (!model) return;
+      model.setStyle({}, {
+        stick: { colorscheme: 'greenCarbon', radius: 0.18 },
+        sphere: { colorscheme: 'greenCarbon', scale: 0.22 },
+      });
+    }, []);
+
+    // Add or swap ligand; zoom to binding site when ligand is present
     const setLigand = useCallback((sdf: string | null) => {
       const viewer = viewerRef.current;
       if (!viewer) return;
 
-      // Remove existing ligand model
       if (ligandModelRef.current) {
         viewer.removeModel(ligandModelRef.current);
         ligandModelRef.current = null;
@@ -84,53 +96,70 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       currentLigandSdf.current = sdf;
 
       if (sdf && ligandVisibleRef.current) {
-        ligandModelRef.current = viewer.addModel(sdf, 'sdf');
-        ligandModelRef.current.setStyle({}, {
-          stick: { colorscheme: 'greenCarbon', radius: 0.15 },
-        });
+        const model = viewer.addModel(sdf, 'sdf');
+        styleLigand(model);
+        ligandModelRef.current = model;
+
+        // Zoom to the ligand binding site so it's clearly visible
+        viewer.zoomTo({ model: model }, 1000);
+      } else {
+        // No ligand — zoom to whole protein
+        viewer.zoomTo({ model: proteinModelRef.current });
       }
 
       viewer.render();
-    }, []);
+    }, [styleLigand]);
 
     const setLigandVisible = useCallback((visible: boolean) => {
+      const viewer = viewerRef.current;
       ligandVisibleRef.current = visible;
+
       if (visible && currentLigandSdf.current) {
-        setLigand(currentLigandSdf.current);
+        // Re-add ligand
+        if (ligandModelRef.current) {
+          viewer?.removeModel(ligandModelRef.current);
+          ligandModelRef.current = null;
+        }
+        if (viewer) {
+          const model = viewer.addModel(currentLigandSdf.current, 'sdf');
+          styleLigand(model);
+          ligandModelRef.current = model;
+          viewer.zoomTo({ model: model }, 800);
+          viewer.render();
+        }
       } else if (!visible) {
-        const viewer = viewerRef.current;
         if (viewer && ligandModelRef.current) {
           viewer.removeModel(ligandModelRef.current);
           ligandModelRef.current = null;
+          // Re-apply protein style after model removal to keep it correct
+          applyProteinStyle(proteinStyleRef.current);
+          viewer.zoomTo({ model: proteinModelRef.current });
           viewer.render();
         }
       }
-    }, [setLigand]);
+    }, [styleLigand, applyProteinStyle]);
 
     const resetView = useCallback(() => {
       const viewer = viewerRef.current;
       if (!viewer) return;
-      viewer.zoomTo();
+      if (ligandModelRef.current) {
+        viewer.zoomTo({ model: ligandModelRef.current });
+      } else {
+        viewer.zoomTo();
+      }
       viewer.spin('y', 0.3);
       viewer.render();
     }, []);
 
     const setProteinStyle = useCallback((style: ProteinStyle) => {
       applyProteinStyle(style);
-      // Re-add ligand since surface operations can affect model indices
-      if (currentLigandSdf.current && ligandVisibleRef.current) {
-        const viewer = viewerRef.current;
-        if (viewer && ligandModelRef.current) {
-          // Re-style ligand in case indices shifted
-          ligandModelRef.current.setStyle({}, {
-            stick: { colorscheme: 'greenCarbon', radius: 0.15 },
-          });
-          viewer.render();
-        }
+      // Re-style ligand after protein style change to ensure it stays visible
+      if (ligandModelRef.current && ligandVisibleRef.current) {
+        styleLigand(ligandModelRef.current);
+        viewerRef.current?.render();
       }
-    }, [applyProteinStyle]);
+    }, [applyProteinStyle, styleLigand]);
 
-    // Expose imperative handle
     useImperativeHandle(ref, () => ({
       setLigand,
       setProteinStyle,
@@ -155,20 +184,21 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         });
         viewerRef.current = viewer;
 
-        // Add protein model (always index 0)
-        viewer.addModel(pdbText, 'pdb');
+        // Add protein — store model reference
+        proteinModelRef.current = viewer.addModel(pdbText, 'pdb');
         applyProteinStyle(proteinStyleRef.current);
 
-        // Add initial ligand if provided
         if (initialLigandSdf) {
-          ligandModelRef.current = viewer.addModel(initialLigandSdf, 'sdf');
-          ligandModelRef.current.setStyle({}, {
-            stick: { colorscheme: 'greenCarbon', radius: 0.15 },
-          });
+          const ligand = viewer.addModel(initialLigandSdf, 'sdf');
+          styleLigand(ligand);
+          ligandModelRef.current = ligand;
           currentLigandSdf.current = initialLigandSdf;
+          // Zoom to ligand so binding site is in focus
+          viewer.zoomTo({ model: ligand });
+        } else {
+          viewer.zoomTo();
         }
 
-        viewer.zoomTo();
         viewer.spin('y', 0.3);
         viewer.render();
         readyRef.current = true;
@@ -180,9 +210,11 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
           viewerRef.current.clear();
           viewerRef.current = null;
         }
+        proteinModelRef.current = null;
+        ligandModelRef.current = null;
         readyRef.current = false;
       };
-    }, [pdbText, initialLigandSdf, applyProteinStyle]);
+    }, [pdbText, initialLigandSdf, applyProteinStyle, styleLigand]);
 
     // Resize on container change
     useEffect(() => {
