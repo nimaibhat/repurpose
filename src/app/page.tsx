@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 
@@ -22,6 +23,8 @@ function LoadingScreen(): React.ReactNode {
 }
 
 function HeroContent(): React.ReactNode {
+  const router = useRouter();
+
   return (
     <motion.div
       className="w-screen h-screen overflow-hidden flex flex-col items-center justify-center relative"
@@ -92,6 +95,7 @@ function HeroContent(): React.ReactNode {
             opacity: { duration: 0.8, delay: 1.2 },
             y: { duration: 4, repeat: Infinity, ease: 'easeInOut', delay: 1.2 },
           }}
+          onClick={() => router.push('/research')}
         >
           get started
         </motion.button>
