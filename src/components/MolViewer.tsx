@@ -194,7 +194,7 @@ export default function MolViewer({
         className="rounded-xl border border-white/[0.06] bg-black/40 flex items-center justify-center"
         style={{ width, height }}
       >
-        <span className="text-xs font-light text-white/20 tracking-wide">
+        <span className="text-xs font-light text-white/40 tracking-wide">
           Loading structure…
         </span>
       </div>

@@ -132,7 +132,7 @@ function StepNode({
   };
 
   const labelClasses: Record<StepStatus, string> = {
-    pending: 'text-white/20',
+    pending: 'text-white/40',
     running: 'text-white/80',
     complete: 'text-white/70',
     error: 'text-red-400/80',
@@ -237,7 +237,7 @@ function StepNode({
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1, ease }}
-          className="text-xs font-light text-white/30 text-center max-w-[120px] leading-snug hidden sm:block"
+          className="text-xs font-light text-white/50 text-center max-w-[120px] leading-snug hidden sm:block"
         >
           {step.message}
         </motion.span>
