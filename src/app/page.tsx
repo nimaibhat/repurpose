@@ -46,7 +46,7 @@ function HeroContent(): React.ReactNode {
       >
         <Orb hoverIntensity={0.6}>
           <ModelViewer
-            url="/pilltablet.glb"
+            url="/tablet_pill (1).glb"
             width={500}
             height={500}
             defaultZoom={1.67}
@@ -60,6 +60,7 @@ function HeroContent(): React.ReactNode {
             rimLightIntensity={1.5}
             enableMouseParallax
             enableHoverRotation
+            colorOverride="#7db8e0"
           />
         </Orb>
       </motion.div>
