@@ -39,7 +39,7 @@ function HeroContent(): React.ReactNode {
       </div>
 
       <motion.div
-        className="z-[1] w-[520px] h-[520px] -mt-4"
+        className="z-[1] w-[min(520px,70vw)] h-[min(520px,70vw)] -mt-4"
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 1.2, delay: 0.2 }}
@@ -80,7 +80,7 @@ function HeroContent(): React.ReactNode {
           transition={{ duration: 0.6, delay: 0.8 }}
         />
         <motion.p
-          className="text-xs tracking-[0.25em] uppercase text-white/35 font-extralight"
+          className="text-sm tracking-[0.25em] uppercase text-white/35 font-extralight"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.9 }}
@@ -88,7 +88,7 @@ function HeroContent(): React.ReactNode {
           hack/ai 2026
         </motion.p>
         <motion.button
-          className="mt-10 px-6 py-3 rounded-md border border-white/10 bg-white/[0.02] text-white/40 text-xs font-extralight tracking-[0.25em] uppercase hover:bg-white/[0.06] hover:text-white/60 hover:border-white/20 transition-all duration-500 cursor-pointer"
+          className="mt-10 px-8 py-4 rounded-md border border-white/10 bg-white/[0.02] text-white/40 text-sm font-extralight tracking-[0.25em] uppercase hover:bg-white/[0.06] hover:text-white/60 hover:border-white/20 transition-all duration-500 cursor-pointer"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1, y: [0, -4, 0] }}
           transition={{

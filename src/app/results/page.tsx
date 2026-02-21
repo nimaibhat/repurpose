@@ -148,7 +148,7 @@ function MechanismFlow({
                 {node.label}
               </p>
             </div>
-            <span className="text-[0.5rem] font-light text-white/20 tracking-wide uppercase">
+            <span className="text-xs font-light text-white/20 tracking-wide uppercase">
               {node.sub}
             </span>
           </motion.div>
@@ -163,7 +163,7 @@ function MechanismFlow({
               <svg className="w-8 h-4 text-white/15" viewBox="0 0 32 16" fill="none">
                 <path d="M0 8h24m0 0l-6-5m6 5l-6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span className="text-[0.45rem] font-light text-white/15 italic">{edges[i]}</span>
+              <span className="text-xs font-light text-white/15 italic">{edges[i]}</span>
             </motion.div>
           )}
         </div>
@@ -200,7 +200,7 @@ function ViewerControls({
         <button
           key={s.value}
           onClick={() => onStyleChange(s.value)}
-          className={`px-2.5 py-1.5 rounded-lg text-[0.6rem] font-light tracking-wide border transition-all duration-300 ${
+          className={`px-3.5 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 ${
             proteinStyle === s.value
               ? 'border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
               : 'border-white/[0.06] bg-white/[0.02] text-white/30 hover:text-white/50 hover:border-white/[0.1]'
@@ -215,7 +215,7 @@ function ViewerControls({
       {/* Ligand toggle */}
       <button
         onClick={onToggleLigand}
-        className={`px-2.5 py-1.5 rounded-lg text-[0.6rem] font-light tracking-wide border transition-all duration-300 ${
+        className={`px-3.5 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 ${
           ligandVisible
             ? 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-400/70'
             : 'border-white/[0.06] bg-white/[0.02] text-white/30 hover:text-white/50'
@@ -227,7 +227,7 @@ function ViewerControls({
       {/* Reset view */}
       <button
         onClick={onReset}
-        className="px-2.5 py-1.5 rounded-lg text-[0.6rem] font-light tracking-wide border border-white/[0.06] bg-white/[0.02] text-white/30 hover:text-white/50 hover:border-white/[0.1] transition-all duration-300"
+        className="px-3.5 py-2 rounded-lg text-xs font-light tracking-wide border border-white/[0.06] bg-white/[0.02] text-white/30 hover:text-white/50 hover:border-white/[0.1] transition-all duration-300"
       >
         Reset View
       </button>
@@ -250,7 +250,7 @@ function TabBar({ active, onChange }: { active: DetailTab; onChange: (t: DetailT
         <button
           key={t.value}
           onClick={() => onChange(t.value)}
-          className={`relative px-4 py-2 rounded-md text-[0.65rem] font-light tracking-wide transition-all duration-300 ${
+          className={`relative px-5 py-2.5 rounded-md text-sm font-light tracking-wide transition-all duration-300 ${
             active === t.value
               ? 'text-white/80'
               : 'text-white/30 hover:text-white/50'
@@ -434,7 +434,7 @@ function ResultsContent() {
           {/* Left: back */}
           <button
             onClick={() => router.push('/research')}
-            className="flex items-center gap-2 text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/35 hover:text-white/60 transition-colors duration-300"
+            className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/35 hover:text-white/60 transition-colors duration-300"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -444,28 +444,28 @@ function ResultsContent() {
 
           {/* Center: title */}
           <div className="flex items-center gap-2">
-            <span className="text-sm font-light text-white/70">{data.disease}</span>
+            <span className="text-base font-light text-white/70">{data.disease}</span>
             <span className="text-white/15">&mdash;</span>
-            <span className="text-sm font-light text-blue-400/70">{data.target.symbol}</span>
-            <span className="text-[0.55rem] font-light text-white/25">({data.target.name})</span>
+            <span className="text-base font-light text-blue-400/70">{data.target.symbol}</span>
+            <span className="text-xs font-light text-white/25">({data.target.name})</span>
           </div>
 
           {/* Right: actions */}
           <div className="flex items-center gap-2">
             <button
               onClick={handleDownloadReport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-[0.6rem] font-light tracking-wide text-white/40 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/40 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"
             >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
               Export Report
             </button>
             <button
               onClick={handleCopyReport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-[0.6rem] font-light tracking-wide text-white/40 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/40 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"
             >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
               </svg>
               {copyFeedback ? 'Copied!' : 'Share'}
@@ -486,8 +486,8 @@ function ResultsContent() {
             <div className="px-5 py-4 border-b border-white/[0.04] shrink-0">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
-                  <h2 className="text-sm font-light text-white/70">Drug Candidates</h2>
-                  <span className="px-2 py-0.5 rounded-full bg-white/[0.05] text-[0.55rem] font-light text-white/35 tabular-nums">
+                  <h2 className="text-base font-light text-white/70">Drug Candidates</h2>
+                  <span className="px-3 py-1 rounded-full bg-white/[0.05] text-xs font-light text-white/35 tabular-nums">
                     {data.candidates.length} results
                   </span>
                 </div>
@@ -498,7 +498,7 @@ function ResultsContent() {
                     <button
                       key={mode}
                       onClick={() => setViewMode(mode)}
-                      className={`relative px-2.5 py-1 rounded text-[0.55rem] font-light capitalize tracking-wide transition-all duration-300 ${
+                      className={`relative px-3.5 py-1.5 rounded text-xs font-light capitalize tracking-wide transition-all duration-300 ${
                         viewMode === mode ? 'text-white/70' : 'text-white/25 hover:text-white/40'
                       }`}
                     >
@@ -518,12 +518,12 @@ function ResultsContent() {
               {/* Sort — only visible in list mode */}
               {viewMode === 'list' && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[0.55rem] font-light text-white/20 tracking-wide uppercase">Sort by:</span>
+                  <span className="text-xs font-light text-white/20 tracking-wide uppercase">Sort by:</span>
                   {(['confidence', 'alphabetical', 'phase'] as SortMode[]).map((mode) => (
                     <button
                       key={mode}
                       onClick={() => { setSortMode(mode); setSelectedIdx(0); }}
-                      className={`px-2 py-1 rounded-md text-[0.55rem] font-light capitalize transition-all duration-300 ${
+                      className={`px-3 py-1.5 rounded-md text-xs font-light capitalize transition-all duration-300 ${
                         sortMode === mode
                           ? 'bg-white/[0.06] text-white/60 border border-white/[0.1]'
                           : 'text-white/25 hover:text-white/40 border border-transparent'
@@ -606,19 +606,21 @@ function ResultsContent() {
                 {/* Viewer + Confidence badge */}
                 <div className="relative">
                   {data.pdb_text && (
-                    <DashboardViewer
-                      ref={viewerRef}
-                      pdbText={data.pdb_text}
-                      initialLigandSdf={selectedDocking?.ligand_sdf}
-                      initialProteinStyle={proteinStyle}
-                      height={380}
-                    />
+                    <div className="w-full aspect-[3/2]">
+                      <DashboardViewer
+                        ref={viewerRef}
+                        pdbText={data.pdb_text}
+                        initialLigandSdf={selectedDocking?.ligand_sdf}
+                        initialProteinStyle={proteinStyle}
+                        height="100%"
+                      />
+                    </div>
                   )}
 
                   {/* Confidence overlay badge */}
                   {selected && (
                     <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
-                      <span className="text-[0.55rem] font-light text-white/35 tracking-wide uppercase">
+                      <span className="text-xs font-light text-white/35 tracking-wide uppercase">
                         Binding Confidence
                       </span>
                       <span
@@ -661,7 +663,7 @@ function ResultsContent() {
                       animate={{ opacity: 1, x: 0 }}
                       className="flex items-center gap-2"
                     >
-                      <span className="text-xs font-light text-white/50">{selected.drug_name}</span>
+                      <span className="text-sm font-light text-white/50">{selected.drug_name}</span>
                       <span className={`w-1.5 h-1.5 rounded-full ${scoreBg(selected.confidence_score)}`} />
                     </motion.div>
                   )}
@@ -679,7 +681,7 @@ function ResultsContent() {
                         transition={{ duration: 0.3, ease }}
                       >
                         {/* Explanation text */}
-                        <div className="text-sm font-light text-white/60 leading-relaxed">
+                        <div className="text-base font-light text-white/60 leading-relaxed">
                           {selected.explanation ? (
                             <p>{selected.explanation}</p>
                           ) : (
@@ -690,10 +692,10 @@ function ResultsContent() {
                         {/* Risk/Benefit section */}
                         {selected.risk_benefit && (
                           <div className="mt-5 pt-4 border-t border-white/[0.05]">
-                            <p className="text-[0.6rem] font-light tracking-[0.15em] uppercase text-white/25 mb-3">
+                            <p className="text-xs font-light tracking-[0.15em] uppercase text-white/25 mb-3">
                               Risk / Benefit Summary
                             </p>
-                            <div className="text-sm font-light text-white/50 leading-relaxed">
+                            <div className="text-base font-light text-white/50 leading-relaxed">
                               {selected.risk_benefit}
                             </div>
                           </div>
@@ -709,7 +711,7 @@ function ResultsContent() {
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.3, ease }}
                       >
-                        <p className="text-[0.6rem] font-light tracking-[0.15em] uppercase text-white/25 mb-2">
+                        <p className="text-xs font-light tracking-[0.15em] uppercase text-white/25 mb-2">
                           Interaction Pathway
                         </p>
                         <MechanismFlow
@@ -720,10 +722,10 @@ function ResultsContent() {
                         />
                         {selected.mechanism && (
                           <div className="mt-4 p-3 rounded-xl border border-white/[0.05] bg-white/[0.015]">
-                            <p className="text-[0.55rem] font-light text-white/25 uppercase tracking-wide mb-1.5">
+                            <p className="text-xs font-light text-white/25 uppercase tracking-wide mb-1.5">
                               Mechanism of Action
                             </p>
-                            <p className="text-xs font-light text-white/50 leading-relaxed">
+                            <p className="text-sm font-light text-white/50 leading-relaxed">
                               {selected.mechanism}
                             </p>
                           </div>
@@ -743,18 +745,18 @@ function ResultsContent() {
                         <div className="flex items-center gap-2 mb-4">
                           <button
                             onClick={handleCopyReport}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-[0.6rem] font-light text-white/35 hover:text-white/55 hover:border-white/[0.12] transition-all duration-300"
+                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light text-white/35 hover:text-white/55 hover:border-white/[0.12] transition-all duration-300"
                           >
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
                             </svg>
                             {copyFeedback ? 'Copied!' : 'Copy Report'}
                           </button>
                           <button
                             onClick={handleDownloadReport}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-[0.6rem] font-light text-white/35 hover:text-white/55 hover:border-white/[0.12] transition-all duration-300"
+                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light text-white/35 hover:text-white/55 hover:border-white/[0.12] transition-all duration-300"
                           >
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                             </svg>
                             Download as Markdown

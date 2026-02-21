@@ -15,12 +15,12 @@ interface DashboardViewerProps {
   pdbText: string;
   initialLigandSdf?: string;
   initialProteinStyle?: ProteinStyle;
-  height?: number;
+  height?: number | string;
 }
 
 const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
   function DashboardViewer(
-    { pdbText, initialLigandSdf, initialProteinStyle = 'cartoon', height = 400 },
+    { pdbText, initialLigandSdf, initialProteinStyle = 'cartoon', height = '100%' },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -159,7 +159,7 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         $3DmolRef.current = $3Dmol;
 
         const viewer = $3Dmol.createViewer(containerRef.current, {
-          backgroundColor: 'transparent',
+          backgroundColor: 'black',
           antialias: true,
         });
         viewerRef.current = viewer;

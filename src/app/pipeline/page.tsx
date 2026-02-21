@@ -220,7 +220,7 @@ function StepCard({
     >
       <div className="flex items-center gap-3 mb-3">
         <div
-          className={`w-6 h-6 rounded-full flex items-center justify-center text-[0.55rem] font-light ${
+          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-light ${
             status === 'running'
               ? 'bg-blue-500/[0.12] text-blue-400'
               : status === 'complete'
@@ -230,7 +230,7 @@ function StepCard({
         >
           {index + 1}
         </div>
-        <span className="text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/40">
+        <span className="text-sm font-light tracking-[0.15em] uppercase text-white/40">
           {label}
         </span>
         {status === 'running' && (
@@ -240,11 +240,11 @@ function StepCard({
             transition={{ duration: 1.5, repeat: Infinity }}
           >
             <div className="w-1 h-1 rounded-full bg-blue-400" />
-            <span className="text-[0.6rem] font-light text-blue-400/70">Processing</span>
+            <span className="text-xs font-light text-blue-400/70">Processing</span>
           </motion.div>
         )}
       </div>
-      <p className="text-sm font-light text-white/60 leading-relaxed">{message}</p>
+      <p className="text-base font-light text-white/60 leading-relaxed">{message}</p>
       {children && <div className="mt-4">{children}</div>}
     </motion.div>
   );
@@ -511,14 +511,14 @@ function PipelineContent() {
       <div className="relative z-10 min-h-screen">
         {/* Top Bar */}
         <motion.nav
-          className="flex items-center justify-between px-8 py-5"
+          className="flex items-center justify-between px-10 py-6"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease }}
         >
           <button
             onClick={() => router.push('/research')}
-            className="flex items-center gap-2 text-[0.7rem] font-light tracking-[0.15em] uppercase text-white/40 hover:text-white/70 transition-colors duration-300"
+            className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/40 hover:text-white/70 transition-colors duration-300"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -527,7 +527,7 @@ function PipelineContent() {
           </button>
 
           <div className="flex items-center gap-4">
-            <span className="px-3 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-[0.6rem] font-light text-white/50 tracking-wide">
+            <span className="px-3 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-xs font-light text-white/50 tracking-wide">
               {disease}
               {mode !== 'explore' && (
                 <span className="text-white/25 ml-1.5">
@@ -536,7 +536,7 @@ function PipelineContent() {
               )}
             </span>
             <span
-              className={`font-mono text-sm font-light tabular-nums ${
+              className={`font-mono text-base font-light tabular-nums ${
                 isDone ? 'text-white/30' : 'text-blue-400/70'
               }`}
             >
@@ -547,7 +547,7 @@ function PipelineContent() {
 
         {/* Stepper Row */}
         <motion.div
-          className="max-w-2xl mx-auto px-8 mt-4 mb-10"
+          className="max-w-3xl mx-auto px-8 mt-4 mb-10"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.2 }}
@@ -565,15 +565,15 @@ function PipelineContent() {
         {/* Error */}
         {state.error && (
           <motion.div
-            className="max-w-2xl mx-auto px-8 mb-6"
+            className="max-w-3xl mx-auto px-8 mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
             <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.05] p-6 backdrop-blur-xl text-center">
-              <p className="text-sm font-light text-red-400/80 mb-4">{state.error}</p>
+              <p className="text-base font-light text-red-400/80 mb-4">{state.error}</p>
               <button
                 onClick={() => window.location.reload()}
-                className="px-5 py-2 rounded-lg border border-red-500/20 bg-red-500/[0.08] text-xs font-light tracking-[0.1em] uppercase text-red-400/80 hover:bg-red-500/[0.15] transition-colors duration-300"
+                className="px-5 py-2.5 rounded-lg border border-red-500/20 bg-red-500/[0.08] text-sm font-light tracking-[0.1em] uppercase text-red-400/80 hover:bg-red-500/[0.15] transition-colors duration-300"
               >
                 Retry
               </button>
@@ -582,8 +582,8 @@ function PipelineContent() {
         )}
 
         {/* Step Cards */}
-        <div className="max-w-2xl mx-auto px-8 pb-16 space-y-4">
-          <AnimatePresence mode="popLayout">
+        <div className="max-w-3xl mx-auto px-8 pb-16 space-y-4">
+          <AnimatePresence mode="sync">
             {/* Step 1: Targets */}
             {stepStatus(0) !== 'pending' && (
               <StepCard key="step-1" label={STEP_LABELS[0]} index={0} status={stepStatus(0)} message={stepMessage(0)}>
@@ -601,7 +601,7 @@ function PipelineContent() {
                       >
                         <span className="text-lg font-light text-blue-400">{t.symbol}</span>
                         <span className="text-xs font-light text-white/35">{t.name}</span>
-                        <span className="text-[0.5rem] font-mono font-light text-white/20">
+                        <span className="text-xs font-mono font-light text-white/20">
                           {t.score.toFixed(3)}
                         </span>
                       </div>
@@ -620,17 +620,17 @@ function PipelineContent() {
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ duration: 0.4, ease }}
                   >
-                    <MolViewer
-                      proteinPdb={pdbText}
-                      width="300px"
-                      height="200px"
-                      proteinStyle="cartoon"
-                      autoRotate
-                    />
+                    <div className="w-full max-w-md aspect-[3/2]">
+                      <MolViewer
+                        proteinPdb={pdbText}
+                        proteinStyle="cartoon"
+                        autoRotate
+                      />
+                    </div>
                     {structuresData.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-3">
                         {structuresData.map((s) => (
-                          <span key={s.pdb_id} className="text-[0.6rem] font-light text-white/25 tracking-wide">
+                          <span key={s.pdb_id} className="text-xs font-light text-white/25 tracking-wide">
                             {s.symbol}: {s.pdb_id}
                             {s.resolution && ` (${s.resolution}\u00C5)`}
                             {` \u2022 ${s.source}`}
@@ -683,14 +683,14 @@ function PipelineContent() {
                   >
                     {dockingViewData.length > 1 && (
                       <div className="flex items-center gap-2 mb-3 flex-wrap">
-                        <span className="text-[0.6rem] font-light text-white/25 tracking-wide uppercase">
+                        <span className="text-xs font-light text-white/25 tracking-wide uppercase">
                           Viewing:
                         </span>
                         {dockingViewData.slice(0, 8).map((d, i) => (
                           <button
                             key={i}
                             onClick={() => setSelectedDocking(i)}
-                            className={`px-2.5 py-1 rounded-md text-[0.6rem] font-light transition-all duration-300 ${
+                            className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 ${
                               selectedDocking === i
                                 ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
                                 : 'border border-white/[0.05] text-white/30 hover:text-white/50'
@@ -701,14 +701,14 @@ function PipelineContent() {
                         ))}
                       </div>
                     )}
-                    <MolViewer
-                      proteinPdb={pdbText}
-                      ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
-                      width="600px"
-                      height="400px"
-                      proteinStyle="surface"
-                      autoRotate
-                    />
+                    <div className="w-full aspect-[3/2]">
+                      <MolViewer
+                        proteinPdb={pdbText}
+                        ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
+                        proteinStyle="surface"
+                        autoRotate
+                      />
+                    </div>
                   </motion.div>
                 )}
               </StepCard>
@@ -725,7 +725,7 @@ function PipelineContent() {
                   >
                     <button
                       onClick={() => router.push('/results')}
-                      className="relative w-full py-3 rounded-xl text-sm font-light tracking-[0.1em] uppercase text-white/80 overflow-hidden border border-blue-500/20 bg-blue-500/[0.06] hover:bg-blue-500/[0.1] transition-colors duration-300 cursor-pointer"
+                      className="relative w-full py-4 rounded-xl text-base font-light tracking-[0.1em] uppercase text-white/80 overflow-hidden border border-blue-500/20 bg-blue-500/[0.06] hover:bg-blue-500/[0.1] transition-colors duration-300 cursor-pointer"
                       style={{
                         boxShadow: '0 0 25px rgba(59, 130, 246, 0.1), 0 0 50px rgba(59, 130, 246, 0.04)',
                       }}
