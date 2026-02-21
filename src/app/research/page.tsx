@@ -93,7 +93,7 @@ function SearchDropdown({
         }}
       >
         <svg
-          className="w-4 h-4 text-white/25 shrink-0"
+          className="w-4 h-4 text-white/45 shrink-0"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -108,7 +108,7 @@ function SearchDropdown({
         <input
           ref={inputRef}
           type="text"
-          className="flex-1 bg-transparent outline-none text-sm text-white/80 placeholder:text-white/25 font-light"
+          className="flex-1 bg-transparent outline-none text-sm text-white/80 placeholder:text-white/45 font-light"
           placeholder={value || placeholder}
           value={open ? query : value}
           onChange={(e) => {
@@ -128,7 +128,7 @@ function SearchDropdown({
         />
         {value && (
           <button
-            className="text-white/20 hover:text-white/50 transition-colors"
+            className="text-white/60 hover:text-white/50 transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               onChange('');
@@ -141,7 +141,7 @@ function SearchDropdown({
           </button>
         )}
         <svg
-          className={`w-3.5 h-3.5 text-white/20 transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`}
+          className={`w-3.5 h-3.5 text-white/60 transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -175,7 +175,7 @@ function SearchDropdown({
                 </button>
               ))
             ) : (
-              <div className="px-4 py-3 text-sm text-white/25 font-light">
+              <div className="px-4 py-3 text-sm text-white/45 font-light">
                 {allowFreeText
                   ? 'Press Enter to use custom value'
                   : 'No results found'}
@@ -256,11 +256,11 @@ function FocusModeCard({
           transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
         />
       )}
-      <Icon className={`w-5 h-5 transition-colors duration-300 ${selected ? 'text-blue-400/80' : 'text-white/30'}`} />
+      <Icon className={`w-5 h-5 transition-colors duration-300 ${selected ? 'text-blue-400/80' : 'text-white/50'}`} />
       <span className={`text-sm font-light tracking-wide transition-colors duration-300 ${selected ? 'text-white/90' : 'text-white/50'}`}>
         {label}
       </span>
-      <span className={`text-xs font-light transition-colors duration-300 ${selected ? 'text-white/40' : 'text-white/20'}`}>
+      <span className={`text-xs font-light transition-colors duration-300 ${selected ? 'text-white/60' : 'text-white/60'}`}>
         {subtitle}
       </span>
     </motion.button>
@@ -360,7 +360,7 @@ export default function ResearchPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
             >
-              <p className="text-sm font-light tracking-[0.15em] uppercase text-white/25 mb-3">
+              <p className="text-sm font-light tracking-[0.15em] uppercase text-white/45 mb-3">
                 Focus Mode
               </p>
               <div className="flex gap-2.5">
@@ -400,7 +400,7 @@ export default function ResearchPage() {
                   className="overflow-hidden"
                 >
                   <div className="mt-5">
-                    <p className="text-sm font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">
+                    <p className="text-sm font-light tracking-[0.15em] uppercase text-white/45 mb-2.5">
                       Protein Target
                     </p>
                     <SearchDropdown
@@ -423,7 +423,7 @@ export default function ResearchPage() {
                   className="overflow-hidden"
                 >
                   <div className="mt-5">
-                    <p className="text-sm font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">
+                    <p className="text-sm font-light tracking-[0.15em] uppercase text-white/45 mb-2.5">
                       Drug Name
                     </p>
                     <SearchDropdown
@@ -446,7 +446,7 @@ export default function ResearchPage() {
               transition={{ duration: 0.6, delay: 0.5 }}
             >
               <button
-                className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/20 hover:text-white/40 transition-colors duration-300 cursor-pointer"
+                className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/60 hover:text-white/60 transition-colors duration-300 cursor-pointer"
                 onClick={() => setAdvancedOpen(!advancedOpen)}
               >
                 <motion.svg
@@ -475,7 +475,7 @@ export default function ResearchPage() {
                     <div className="mt-4 space-y-5 pl-1">
                       {/* ADMET Strictness */}
                       <div>
-                        <p className="text-xs font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">
+                        <p className="text-xs font-light tracking-[0.12em] uppercase text-white/60 mb-2.5">
                           ADMET Strictness
                         </p>
                         <div className="flex gap-2">
@@ -487,7 +487,7 @@ export default function ResearchPage() {
                                 className={`px-5 py-2.5 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
                                   isActive
                                     ? 'border-white/15 bg-white/[0.06] text-white/70'
-                                    : 'border-white/[0.05] bg-transparent text-white/25 hover:text-white/40 hover:border-white/[0.1]'
+                                    : 'border-white/[0.05] bg-transparent text-white/45 hover:text-white/60 hover:border-white/[0.1]'
                                 }`}
                                 onClick={() => setAdmetStrict(opt === 'Strict')}
                               >
@@ -500,7 +500,7 @@ export default function ResearchPage() {
 
                       {/* Max Candidates */}
                       <div>
-                        <p className="text-xs font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">
+                        <p className="text-xs font-light tracking-[0.12em] uppercase text-white/60 mb-2.5">
                           Max Candidates to Dock
                         </p>
                         <div className="flex gap-2">
@@ -510,7 +510,7 @@ export default function ResearchPage() {
                               className={`px-5 py-2.5 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
                                 maxCandidates === n
                                   ? 'border-white/15 bg-white/[0.06] text-white/70'
-                                  : 'border-white/[0.05] bg-transparent text-white/25 hover:text-white/40 hover:border-white/[0.1]'
+                                  : 'border-white/[0.05] bg-transparent text-white/45 hover:text-white/60 hover:border-white/[0.1]'
                                 }`}
                               onClick={() => setMaxCandidates(n)}
                             >
@@ -536,7 +536,7 @@ export default function ResearchPage() {
                 className={`relative w-full py-4 rounded-xl text-base font-light tracking-[0.15em] uppercase overflow-hidden border ${
                   cancerType
                     ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
-                    : 'text-white/25 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
+                    : 'text-white/45 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
                 }`}
                 whileHover={cancerType ? { scale: 1.005 } : undefined}
                 whileTap={cancerType ? { scale: 0.995 } : undefined}

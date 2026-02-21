@@ -230,7 +230,7 @@ function StepCard({
         >
           {index + 1}
         </div>
-        <span className="text-sm font-light tracking-[0.15em] uppercase text-white/40">
+        <span className="text-sm font-light tracking-[0.15em] uppercase text-white/60">
           {label}
         </span>
         {status === 'running' && (
@@ -518,7 +518,7 @@ function PipelineContent() {
         >
           <button
             onClick={() => router.push('/research')}
-            className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/40 hover:text-white/70 transition-colors duration-300"
+            className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/60 hover:text-white/70 transition-colors duration-300"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -530,14 +530,14 @@ function PipelineContent() {
             <span className="px-3 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-xs font-light text-white/50 tracking-wide">
               {disease}
               {mode !== 'explore' && (
-                <span className="text-white/25 ml-1.5">
+                <span className="text-white/45 ml-1.5">
                   {mode === 'target' ? `/ ${targetSymbol}` : `/ ${drugName}`}
                 </span>
               )}
             </span>
             <span
               className={`font-mono text-base font-light tabular-nums ${
-                isDone ? 'text-white/30' : 'text-blue-400/70'
+                isDone ? 'text-white/50' : 'text-blue-400/70'
               }`}
             >
               {timerStr}
@@ -600,8 +600,8 @@ function PipelineContent() {
                         className="inline-flex items-center gap-3 px-4 py-2.5 rounded-xl border border-blue-500/15 bg-blue-500/[0.05]"
                       >
                         <span className="text-lg font-light text-blue-400">{t.symbol}</span>
-                        <span className="text-xs font-light text-white/35">{t.name}</span>
-                        <span className="text-xs font-mono font-light text-white/20">
+                        <span className="text-xs font-light text-white/55">{t.name}</span>
+                        <span className="text-xs font-mono font-light text-white/60">
                           {t.score.toFixed(3)}
                         </span>
                       </div>
@@ -630,7 +630,7 @@ function PipelineContent() {
                     {structuresData.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-3">
                         {structuresData.map((s) => (
-                          <span key={s.pdb_id} className="text-xs font-light text-white/25 tracking-wide">
+                          <span key={s.pdb_id} className="text-xs font-light text-white/45 tracking-wide">
                             {s.symbol}: {s.pdb_id}
                             {s.resolution && ` (${s.resolution}\u00C5)`}
                             {` \u2022 ${s.source}`}
@@ -683,7 +683,7 @@ function PipelineContent() {
                   >
                     {dockingViewData.length > 1 && (
                       <div className="flex items-center gap-2 mb-3 flex-wrap">
-                        <span className="text-xs font-light text-white/25 tracking-wide uppercase">
+                        <span className="text-xs font-light text-white/45 tracking-wide uppercase">
                           Viewing:
                         </span>
                         {dockingViewData.slice(0, 8).map((d, i) => (
@@ -693,7 +693,7 @@ function PipelineContent() {
                             className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 ${
                               selectedDocking === i
                                 ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
-                                : 'border border-white/[0.05] text-white/30 hover:text-white/50'
+                                : 'border border-white/[0.05] text-white/50 hover:text-white/50'
                             }`}
                           >
                             {d.drug_name}
