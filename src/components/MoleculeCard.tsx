@@ -20,9 +20,9 @@ interface MoleculeCardProps {
 // ─── Size Config ────────────────────────────────────────────────────────────
 
 const sizeConfig = {
-  small:  { canvasW: 120, canvasH: 90  },
-  medium: { canvasW: 100, canvasH: 80  },
-  large:  { canvasW: 200, canvasH: 160 },
+  small:  { canvasW: 140, canvasH: 105 },
+  medium: { canvasW: 120, canvasH: 96  },
+  large:  { canvasW: 240, canvasH: 192 },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ function phaseLabel(phase?: number): { label: string; classes: string } {
   if (phase === 3) return { label: 'Phase 3',      classes: 'border-yellow-500/20 bg-yellow-500/[0.08] text-yellow-400/80' };
   if (phase === 2) return { label: 'Phase 2',      classes: 'border-blue-500/20 bg-blue-500/[0.08] text-blue-400/80' };
   if (phase === 1) return { label: 'Phase 1',      classes: 'border-purple-500/20 bg-purple-500/[0.08] text-purple-400/80' };
-  return { label: 'Preclinical', classes: 'border-white/[0.08] bg-white/[0.03] text-white/40' };
+  return { label: 'Preclinical', classes: 'border-white/[0.08] bg-white/[0.03] text-white/60' };
 }
 
 const ease = [0.16, 1, 0.3, 1] as const;
@@ -134,7 +134,7 @@ export default function MoleculeCard({
       className="flex items-center justify-center rounded-lg bg-white/[0.02]"
       style={{ width: canvasW, height: canvasH }}
     >
-      <span className="text-[0.5rem] font-light text-white/20">
+      <span className="text-xs font-light text-white/60">
         Structure unavailable
       </span>
     </div>
@@ -162,12 +162,12 @@ export default function MoleculeCard({
       >
         {canvasEl}
         {drugName && (
-          <span className="text-[0.6rem] font-light text-white/60 text-center leading-tight truncate w-full">
+          <span className="text-xs font-light text-white/60 text-center leading-tight truncate w-full">
             {drugName}
           </span>
         )}
         {confidence !== undefined && (
-          <span className={`text-[0.5rem] font-light tracking-wide ${scoreTextClass(confidence)}`}>
+          <span className={`text-xs font-light tracking-wide ${scoreTextClass(confidence)}`}>
             Score: {confidence.toFixed(2)}
           </span>
         )}
@@ -211,7 +211,7 @@ export default function MoleculeCard({
           {/* Rank + Name */}
           <div className="flex items-center gap-2 mb-1">
             {rank !== undefined && (
-              <span className="text-[0.55rem] font-mono font-light text-white/20">
+              <span className="text-xs font-mono font-light text-white/60">
                 #{rank}
               </span>
             )}
@@ -234,7 +234,7 @@ export default function MoleculeCard({
                     transition={{ duration: 0.8, ease }}
                   />
                 </div>
-                <span className={`text-[0.6rem] font-mono font-light tabular-nums ${scoreTextClass(confidence)}`}>
+                <span className={`text-xs font-mono font-light tabular-nums ${scoreTextClass(confidence)}`}>
                   {confidence.toFixed(2)}
                 </span>
               </div>
@@ -245,7 +245,7 @@ export default function MoleculeCard({
           {pb && (
             <div className="flex items-center gap-2 flex-wrap">
               <span
-                className={`inline-block px-1.5 py-0.5 rounded text-[0.5rem] font-light tracking-wide border ${pb.classes}`}
+                className={`inline-block px-3 py-1 rounded text-xs font-light tracking-wide border ${pb.classes}`}
               >
                 {pb.label}
               </span>
@@ -254,7 +254,7 @@ export default function MoleculeCard({
 
           {/* Mechanism */}
           {mechanism && (
-            <p className="mt-1.5 text-[0.6rem] font-light text-white/30 leading-relaxed line-clamp-1">
+            <p className="mt-1.5 text-xs font-light text-white/50 leading-relaxed line-clamp-1">
               {mechanism}
             </p>
           )}
