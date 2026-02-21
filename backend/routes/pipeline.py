@@ -6,6 +6,9 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException
 from starlette.responses import StreamingResponse
 
+from fastapi import APIRouter, HTTPException, Depends
+
+from config import Settings, get_settings
 from models.schemas import PipelineRequest, PipelineResult
 from services.open_targets import search_disease, get_associated_targets, OpenTargetsError
 from services.rcsb import search_pdb, download_pdb, get_resolution, fetch_alphafold_pdb
@@ -79,8 +82,9 @@ async def fetch_drugs_for_symbol(symbol: str) -> list[dict]:
 
 
 @router.post("/", response_model=PipelineResult)
-async def run_pipeline(request: PipelineRequest):
-    # Step 1: Get targets from Open Targets
+async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(get_settings)):
+
+    # Step 1: Disease → top protein targets
     try:
         disease_info = await search_disease(request.disease)
         targets = await get_associated_targets(disease_info["id"], max_targets=request.max_targets)

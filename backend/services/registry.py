@@ -40,10 +40,65 @@ def _headers(service_key: str) -> dict:
 
 # ---------------------------------------------------------------------------
 # protein_registry
+# columns: id, target_id (UNIQUE), display_name, disease_id, disease_name, created_at
 # ---------------------------------------------------------------------------
 
+def save_targets(
+    settings: Settings,
+    targets: list[dict],
+    disease_id: str,
+    disease_name: str,
+) -> None:
+    """Upsert every target from a /api/targets response into protein_registry.
+
+    Each dict in *targets* must have: ensembl_id, symbol, name, score.
+    Conflict key is target_id (Ensembl ID) — duplicate queries just refresh
+    the disease context columns.
+    """
+    print(f"[registry] save_targets called with {len(targets)} target(s). supabase_url set: {bool(settings.supabase_url)}, key set: {bool(settings.supabase_service_key)}")
+
+    if not _is_configured(settings):
+        print("[registry] Supabase not configured — skipping protein registry save")
+        return
+
+    if not targets:
+        print("[registry] No targets passed — nothing to save")
+        return
+
+    rows = [
+        {
+            "target_id":    t["ensembl_id"],   # UNIQUE conflict key
+            "display_name": t.get("symbol"),
+            "disease_id":   disease_id,
+            "disease_name": disease_name,
+        }
+        for t in targets
+        if t.get("ensembl_id")
+    ]
+
+    if not rows:
+        return
+
+    print(f"[registry] Attempting to upsert {len(rows)} protein(s) to Supabase...")
+    for row in rows:
+        print(f"  -> {row['target_id']} | {row['display_name']} | {row['disease_name']}")
+
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.post(
+                f"{settings.supabase_url}/rest/v1/protein_registry",
+                headers=_headers(settings.supabase_service_key),
+                params={"on_conflict": "target_id"},
+                json=rows,
+            )
+            resp.raise_for_status()
+        print(f"[registry] Successfully upserted {len(rows)} protein(s). HTTP {resp.status_code}")
+    except Exception as exc:
+        print(f"[registry] ERROR saving proteins: {exc}")
+
+
 def save_protein(settings: Settings, target_id: str, display_name: str | None) -> None:
-    """Upsert a single protein into protein_registry (keyed on target_id)."""
+    """Upsert a single protein (used by the pipeline route)."""
     if not _is_configured(settings):
         logger.warning("Supabase not configured — skipping protein registry save")
         return
@@ -63,7 +118,7 @@ def save_protein(settings: Settings, target_id: str, display_name: str | None) -
 
 
 # ---------------------------------------------------------------------------
-# drug_registry
+# drug_registry  (columns: id, chembl_id, common_name, smiles, phase, created_at)
 # ---------------------------------------------------------------------------
 
 def save_drugs(settings: Settings, drugs: list[dict]) -> None:
@@ -72,11 +127,14 @@ def save_drugs(settings: Settings, drugs: list[dict]) -> None:
     Each dict in *drugs* is expected to have the keys that ChEMBL returns:
       chembl_id, name, smiles, max_phase   (all others are ignored).
     """
+    print(f"[registry] save_drugs called with {len(drugs)} drug(s). supabase_url set: {bool(settings.supabase_url)}, key set: {bool(settings.supabase_service_key)}")
+
     if not _is_configured(settings):
-        logger.warning("Supabase not configured — skipping drug registry save")
+        print("[registry] Supabase not configured — skipping drug registry save")
         return
 
     if not drugs:
+        print("[registry] No drugs passed — nothing to save")
         return
 
     # Map ChEMBL field names → registry column names; skip rows with no chembl_id
@@ -94,6 +152,10 @@ def save_drugs(settings: Settings, drugs: list[dict]) -> None:
     if not rows:
         return
 
+    print(f"[registry] Attempting to upsert {len(rows)} drug(s) to Supabase...")
+    for row in rows:
+        print(f"  -> {row['chembl_id']} | {row['common_name']} | phase {row['phase']}")
+
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
             resp = client.post(
@@ -103,6 +165,6 @@ def save_drugs(settings: Settings, drugs: list[dict]) -> None:
                 json=rows,
             )
             resp.raise_for_status()
-        logger.info("Registry: upserted %d drug(s)", len(rows))
+        print(f"[registry] Successfully upserted {len(rows)} drug(s). HTTP {resp.status_code}")
     except Exception as exc:
-        logger.error("Registry: failed to save drugs — %s", exc)
+        print(f"[registry] ERROR saving drugs: {exc}")
