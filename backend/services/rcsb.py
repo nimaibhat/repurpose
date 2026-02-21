@@ -118,8 +118,22 @@ async def fetch_alphafold_pdb(symbol: str) -> tuple[str, str]:
     if not uniprot_id:
         raise RCSBError(f"Could not map '{symbol}' to a UniProt ID for AlphaFold fallback")
 
-    url = f"{ALPHAFOLD_URL}/AF-{uniprot_id}-F1-model_v4.pdb"
+    # Query AlphaFold API to get the correct pdbUrl for this entry
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        return uniprot_id, resp.text
+        api_resp = await client.get(f"https://alphafold.ebi.ac.uk/api/prediction/{uniprot_id}")
+        if api_resp.status_code == 200:
+            entries = api_resp.json()
+            if entries and entries[0].get("pdbUrl"):
+                pdb_url = entries[0]["pdbUrl"]
+                pdb_resp = await client.get(pdb_url)
+                pdb_resp.raise_for_status()
+                return uniprot_id, pdb_resp.text
+
+        # Fallback: try v4 then v3
+        for version in (4, 3, 2):
+            url = f"{ALPHAFOLD_URL}/AF-{uniprot_id}-F1-model_v{version}.pdb"
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                return uniprot_id, resp.text
+
+    raise RCSBError(f"No AlphaFold structure found for '{symbol}' (UniProt: {uniprot_id})")
