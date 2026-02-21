@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     ncbi_api_key: str = ""
     supabase_url: str = ""
     supabase_service_key: str = ""
+    frontend_url: str = "http://localhost:3000"
 
     model_config = {"env_file": [".env", "../.env"], "extra": "ignore"}
 

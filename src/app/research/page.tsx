@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 
 const WaveField = dynamic(() => import('@/components/WaveField'), { ssr: false });
 
-const BACKEND = 'http://localhost:8000';
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -416,7 +416,7 @@ export default function ResearchPage() {
     router.push(`/pipeline?${params.toString()}`);
   };
 
-  const showForm = status === 'idle';
+  const showForm = status === 'idle' || status === 'error';
   const reset = () => { setStatus('idle'); setResults(null); };
 
   return (

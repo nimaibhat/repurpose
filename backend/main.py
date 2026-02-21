@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes import pipeline, targets, structures, drugs, docking, report, admet
+from config import get_settings
 
+settings = get_settings()
 
 app = FastAPI(
     title="Repurpose",
@@ -18,8 +20,7 @@ async def load_models():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
+        settings.frontend_url,
         "https://*.vercel.app",
     ],
     allow_origin_regex=r"https://.*\.vercel\.app",

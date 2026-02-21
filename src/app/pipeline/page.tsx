@@ -346,7 +346,7 @@ function PipelineContent() {
 
     (async () => {
       try {
-        const resp = await fetch('http://localhost:8000/api/pipeline/stream', {
+        const resp = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/pipeline/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
