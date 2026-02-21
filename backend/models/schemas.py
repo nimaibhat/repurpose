@@ -77,10 +77,32 @@ class DockingResponse(BaseModel):
 
 
 # --- Report ---
+class ReportTarget(BaseModel):
+    symbol: str
+    name: str
+
+
+class ReportDrugInput(BaseModel):
+    drug_name: str | None = None
+    smiles: str
+    confidence_score: float
+    mechanism: str | None = None
+    max_phase: int | None = None
+
+
 class ReportRequest(BaseModel):
     disease: str
-    pipeline_result: PipelineResult
+    target: ReportTarget
+    results: list[ReportDrugInput]
+
+
+class CandidateExplanation(BaseModel):
+    drug_name: str | None = None
+    explanation: str
+    risk_benefit: str
+    priority_rank: int
 
 
 class ReportResponse(BaseModel):
-    markdown: str
+    report_text: str
+    candidates: list[CandidateExplanation]
