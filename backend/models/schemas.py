@@ -30,15 +30,12 @@ class TargetsResponse(BaseModel):
 
 
 # --- Structures ---
-class StructureHit(BaseModel):
+class StructureResponse(BaseModel):
+    symbol: str
     pdb_id: str
-    title: str
     resolution: float | None = None
-
-
-class StructuresResponse(BaseModel):
-    target_id: str
-    structures: list[StructureHit]
+    source: str  # "rcsb" or "alphafold"
+    pdb_text: str
 
 
 # --- Drugs ---
@@ -46,27 +43,33 @@ class DrugCandidate(BaseModel):
     chembl_id: str
     name: str | None = None
     smiles: str
-    phase: int | None = None
+    max_phase: int
+    mechanism: str | None = None
 
 
 class DrugsResponse(BaseModel):
-    target_id: str
+    symbol: str
+    target_chembl_id: str
     drugs: list[DrugCandidate]
 
 
 # --- Docking ---
-class DockingRequest(BaseModel):
-    pdb_id: str
+class DockingDrug(BaseModel):
+    name: str | None = None
     smiles: str
-    drug_name: str | None = None
+
+
+class DockingRequest(BaseModel):
+    pdb_text: str
+    drugs: list[DockingDrug]
 
 
 class DockingResult(BaseModel):
-    pdb_id: str
-    smiles: str
     drug_name: str | None = None
+    smiles: str
     confidence_score: float
-    pose_url: str | None = None
+    ligand_sdf: str
+    num_poses: int
 
 
 class DockingResponse(BaseModel):
@@ -74,10 +77,32 @@ class DockingResponse(BaseModel):
 
 
 # --- Report ---
+class ReportTarget(BaseModel):
+    symbol: str
+    name: str
+
+
+class ReportDrugInput(BaseModel):
+    drug_name: str | None = None
+    smiles: str
+    confidence_score: float
+    mechanism: str | None = None
+    max_phase: int | None = None
+
+
 class ReportRequest(BaseModel):
     disease: str
-    pipeline_result: PipelineResult
+    target: ReportTarget
+    results: list[ReportDrugInput]
+
+
+class CandidateExplanation(BaseModel):
+    drug_name: str | None = None
+    explanation: str
+    risk_benefit: str
+    priority_rank: int
 
 
 class ReportResponse(BaseModel):
-    markdown: str
+    report_text: str
+    candidates: list[CandidateExplanation]
