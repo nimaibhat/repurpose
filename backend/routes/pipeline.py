@@ -5,6 +5,8 @@ from models.schemas import PipelineRequest, PipelineResult
 from services.open_targets import search_disease, get_associated_targets, OpenTargetsError
 from services.rcsb import search_pdb, download_pdb, get_resolution, fetch_alphafold_pdb
 from services.chembl import search_drugs
+from services.nvidia_nim import run_diffdock_batch
+from config import get_settings
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
@@ -83,7 +85,52 @@ async def run_pipeline(request: PipelineRequest):
             print(f"Warning: Could not fetch drugs for {symbol}: {e}")
             continue
     
-    # TODO: Step 5: Run docking simulations
+    # Step 5: Run docking simulations
+    settings = get_settings()
+    if not settings.nvidia_nim_api_key:
+        raise HTTPException(status_code=500, detail="NVIDIA NIM API key not configured")
+    
+    all_docking_results = []
+    for structure in structures:
+        symbol = structure["symbol"]
+        pdb_id = structure["pdb_id"]
+        
+        # Find drugs for this target
+        target_drugs = [d for d in all_drugs if d["target_symbol"] == symbol]
+        if not target_drugs:
+            print(f"Warning: No drugs found for {symbol}, skipping docking")
+            continue
+        
+        # Load PDB file
+        pdb_file_path = Path(structure["file_path"])
+        if not pdb_file_path.exists():
+            print(f"Warning: PDB file not found for {symbol}: {pdb_file_path}")
+            continue
+        
+        pdb_text = pdb_file_path.read_text()
+        
+        # Run docking for this structure with all its drugs
+        try:
+            docking_results = await run_diffdock_batch(
+                api_key=settings.nvidia_nim_api_key,
+                pdb_text=pdb_text,
+                drugs=target_drugs,
+            )
+            
+            # Add structure info to each result
+            for result in docking_results:
+                result["pdb_id"] = pdb_id
+                result["target_symbol"] = symbol
+            
+            all_docking_results.extend(docking_results)
+            print(f"Docked {len(docking_results)} compounds successfully for {symbol} ({pdb_id})")
+        except Exception as e:
+            print(f"Warning: Docking failed for {symbol}: {e}")
+            continue
+    
+    # Sort all docking results by confidence
+    all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
+    
     # TODO: Step 6: Generate report
     
     return PipelineResult(
@@ -91,6 +138,6 @@ async def run_pipeline(request: PipelineRequest):
         targets=targets,
         structures=structures,
         drugs=all_drugs,
-        docking_results=[],
-        report=f"# Pipeline for {disease_info['name']}\n\nTarget symbols: {', '.join(target_symbols)}\n\nStructures found: {len(structures)}\n\nDrugs found: {len(all_drugs)}",
+        docking_results=all_docking_results,
+        report=f"# Pipeline for {disease_info['name']}\n\nTarget symbols: {', '.join(target_symbols)}\n\nStructures found: {len(structures)}\n\nDrugs found: {len(all_drugs)}\n\nSuccessful dockings: {len(all_docking_results)}",
     )
