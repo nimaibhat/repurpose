@@ -497,13 +497,13 @@ function ResultsContent() {
           transition={{ duration: 0.5, ease }}
         >
           <button
-            onClick={() => router.push('/research')}
+            onClick={() => router.back()}
             className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/55 hover:text-white/60 transition-colors duration-300"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            New Search
+            Back
           </button>
 
           <div className="flex items-center gap-2">
@@ -514,6 +514,15 @@ function ResultsContent() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push('/research')}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/50 hover:text-white/70 hover:border-white/[0.14] transition-all duration-300"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+              </svg>
+              New Search
+            </button>
             <button
               onClick={handleDownloadReport}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/60 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"

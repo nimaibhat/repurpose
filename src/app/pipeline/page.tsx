@@ -102,7 +102,8 @@ type PipelineAction =
   | { type: 'STEP_COMPLETE'; step: number; data: Record<string, any>; message?: string }
   | { type: 'STEP_ERROR'; step: number; message: string }
   | { type: 'DONE'; step: number; data: Record<string, any> }
-  | { type: 'FETCH_ERROR'; message: string };
+  | { type: 'FETCH_ERROR'; message: string }
+  | { type: 'RESTORE'; state: PipelineState };
 
 const initialState: PipelineState = {
   stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
@@ -144,6 +145,8 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
     }
     case 'FETCH_ERROR':
       return { ...state, error: action.message };
+    case 'RESTORE':
+      return action.state;
     default:
       return state;
   }
@@ -311,6 +314,9 @@ function PipelineContent() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasStoredResults = useRef(false);
 
+  // Cache key identifying this exact search
+  const cacheKey = `${disease}|${mode}|${targetSymbol}|${drugName}|${maxTargets}|${maxCandidates}`;
+
   // Redirect if missing params
   useEffect(() => {
     if (!disease) router.replace('/research');
@@ -336,6 +342,24 @@ function PipelineContent() {
     const interval = setInterval(() => setSubMsgIndex((i) => i + 1), 4000);
     return () => clearInterval(interval);
   }, [state.isDone, state.error]);
+
+  // Restore from cache if navigating back to the same search
+  useEffect(() => {
+    if (!disease || hasStarted.current) return;
+    try {
+      const raw = sessionStorage.getItem('pipeline_state_cache');
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached.key === cacheKey && cached.state?.isDone) {
+          dispatch({ type: 'RESTORE', state: cached.state });
+          if (cached.pdbText) setPdbText(cached.pdbText);
+          hasStarted.current = true; // prevent SSE from firing
+          hasStoredResults.current = true;
+        }
+      }
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disease]);
 
   // SSE stream fetch
   useEffect(() => {
@@ -439,7 +463,11 @@ function PipelineContent() {
       const d = state.stepData[i];
       if (d) {
         switch (i) {
-          case 0: return `Found ${d.targets.length} target${d.targets.length !== 1 ? 's' : ''}: ${d.targets.map((t: any) => t.symbol).join(', ')}`;
+          case 0: {
+            const syms = d.targets.map((t: any) => t.symbol);
+            const preview = syms.slice(0, 5).join(', ') + (syms.length > 5 ? `, +${syms.length - 5} more` : '');
+            return `Found ${d.targets.length} target${d.targets.length !== 1 ? 's' : ''}: ${preview}`;
+          }
           case 1: return `Retrieved ${d.structures.length} structure${d.structures.length !== 1 ? 's' : ''}`;
           case 2: return `Found ${d.drugs.length} drug candidate${d.drugs.length !== 1 ? 's' : ''}`;
           case 3: return `Docked ${d.docking_results.length} compound${d.docking_results.length !== 1 ? 's' : ''} successfully`;
@@ -538,6 +566,18 @@ function PipelineContent() {
     } catch { /* best-effort */ }
   }, [pdbText, result]);
 
+  // Save full reducer state to cache so Back navigation can restore it
+  useEffect(() => {
+    if (!state.isDone) return;
+    try {
+      sessionStorage.setItem('pipeline_state_cache', JSON.stringify({
+        key: cacheKey,
+        state,
+        pdbText,
+      }));
+    } catch { /* best-effort */ }
+  }, [state.isDone, pdbText, cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Timer string
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
@@ -564,16 +604,25 @@ function PipelineContent() {
           transition={{ duration: 0.5, ease }}
         >
           <button
-            onClick={() => router.push('/research')}
+            onClick={() => router.back()}
             className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/60 hover:text-white/70 transition-colors duration-300"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            New Search
+            Back
           </button>
 
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.push('/research')}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/50 hover:text-white/70 hover:border-white/[0.14] transition-all duration-300"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+              </svg>
+              New Search
+            </button>
             <span className="px-3 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-xs font-light text-white/50 tracking-wide">
               {disease}
               {mode !== 'explore' && (
@@ -641,7 +690,7 @@ function PipelineContent() {
                     transition={{ duration: 0.4, ease }}
                     className="flex flex-wrap gap-2"
                   >
-                    {targetsData.map((t) => (
+                    {targetsData.slice(0, 8).map((t) => (
                       <div
                         key={t.symbol}
                         className="inline-flex items-center gap-3 px-4 py-2.5 rounded-xl border border-blue-500/15 bg-blue-500/[0.05]"
@@ -653,6 +702,11 @@ function PipelineContent() {
                         </span>
                       </div>
                     ))}
+                    {targetsData.length > 8 && (
+                      <div className="inline-flex items-center px-4 py-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02]">
+                        <span className="text-sm font-light text-white/40">+{targetsData.length - 8} more</span>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </StepCard>
