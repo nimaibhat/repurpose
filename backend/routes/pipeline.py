@@ -1,25 +1,35 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from models.schemas import PipelineRequest, PipelineResult
+from services.open_targets import search_disease, get_associated_targets, OpenTargetsError
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
 @router.post("/", response_model=PipelineResult)
 async def run_pipeline(request: PipelineRequest):
+    # Step 1: Get targets from Open Targets
+    try:
+        disease_info = await search_disease(request.disease)
+        targets = await get_associated_targets(disease_info["id"])
+    except OpenTargetsError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Open Targets API error: {e}")
+    
+    # Step 2: Extract target symbols
+    target_symbols = [target["symbol"] for target in targets]
+    
+    # TODO: Step 3: For each symbol, get structures from RCSB
+    # TODO: Step 4: For each symbol, get compounds from ChEMBL
+    # TODO: Step 5: Run docking simulations
+    # TODO: Step 6: Generate report
+    
     return PipelineResult(
-        disease=request.disease,
-        targets=[
-            {"id": "ENSG00000157764", "symbol": "BRAF", "name": "B-Raf proto-oncogene", "score": 0.92},
-        ],
-        structures=[
-            {"pdb_id": "6VJJ", "title": "BRAF kinase domain", "resolution": 2.1},
-        ],
-        drugs=[
-            {"chembl_id": "CHEMBL2068237", "name": "Dabrafenib", "smiles": "CC1=C(F)...", "phase": 4},
-        ],
-        docking_results=[
-            {"pdb_id": "6VJJ", "smiles": "CC1=C(F)...", "drug_name": "Dabrafenib", "confidence_score": 0.85},
-        ],
-        report="# Placeholder pipeline report",
+        disease=disease_info["name"],
+        targets=targets,
+        structures=[],
+        drugs=[],
+        docking_results=[],
+        report=f"# Pipeline for {disease_info['name']}\n\nTarget symbols: {', '.join(target_symbols)}",
     )
