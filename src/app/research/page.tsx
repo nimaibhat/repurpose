@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 
@@ -269,6 +270,7 @@ function FocusModeCard({
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function ResearchPage() {
+  const router = useRouter();
   const [cancerType, setCancerType] = useState('');
   const [focusMode, setFocusMode] = useState<FocusMode>('explore');
   const [proteinTarget, setProteinTarget] = useState('');
@@ -276,6 +278,22 @@ export default function ResearchPage() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [admetStrict, setAdmetStrict] = useState(true);
   const [maxCandidates, setMaxCandidates] = useState(25);
+
+  const handleRunAnalysis = () => {
+    if (!cancerType) return;
+    const params = new URLSearchParams({
+      disease: cancerType,
+      mode: focusMode,
+      max_candidates: String(maxCandidates),
+    });
+    if (focusMode === 'target' && proteinTarget) {
+      params.set('target_symbol', proteinTarget);
+    }
+    if (focusMode === 'drug' && drugName) {
+      params.set('drug_name', drugName);
+    }
+    router.push(`/pipeline?${params.toString()}`);
+  };
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0a0b0f]">
@@ -518,15 +536,25 @@ export default function ResearchPage() {
               transition={{ duration: 0.6, delay: 0.6 }}
             >
               <motion.button
-                className="relative w-full py-3.5 rounded-xl text-sm font-light tracking-[0.15em] uppercase text-white/90 cursor-pointer overflow-hidden border border-blue-500/20 bg-blue-500/[0.08]"
-                whileHover={{ scale: 1.005 }}
-                whileTap={{ scale: 0.995 }}
-                style={{
-                  boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)',
-                }}
+                className={`relative w-full py-3.5 rounded-xl text-sm font-light tracking-[0.15em] uppercase overflow-hidden border ${
+                  cancerType
+                    ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
+                    : 'text-white/25 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
+                }`}
+                whileHover={cancerType ? { scale: 1.005 } : undefined}
+                whileTap={cancerType ? { scale: 0.995 } : undefined}
+                style={
+                  cancerType
+                    ? { boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)' }
+                    : undefined
+                }
+                onClick={handleRunAnalysis}
+                disabled={!cancerType}
               >
                 <span className="relative z-10">Run Analysis</span>
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />
+                {cancerType && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />
+                )}
               </motion.button>
             </motion.div>
           </div>

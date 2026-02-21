@@ -66,9 +66,10 @@ async def get_associated_targets(efo_id: str) -> list[dict]:
     return [
         {
             "ensembl_id": row["target"]["id"],
-            "symbol": row["target"].get("approvedSymbol") or row["target"]["id"],
+            "symbol": row["target"]["approvedSymbol"],
             "name": row["target"]["approvedName"],
             "score": round(row["score"], 4),
         }
         for row in rows
+        if row["target"].get("approvedSymbol")
     ]
