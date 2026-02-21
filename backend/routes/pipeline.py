@@ -6,6 +6,7 @@ from services.open_targets import search_disease, get_associated_targets, OpenTa
 from services.rcsb import search_pdb, download_pdb, get_resolution, fetch_alphafold_pdb
 from services.chembl import search_drugs
 from services.nvidia_nim import run_diffdock_batch
+from services.claude import generate_report
 from config import get_settings
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -140,7 +141,54 @@ async def run_pipeline(request: PipelineRequest):
     # Sort all docking results by confidence
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
-    # TODO: Step 6: Generate report
+    # Step 6: Generate AI report using top target's docking results
+    report_text = f"# Pipeline for {disease_info['name']}\n\nTarget symbols: {', '.join(target_symbols)}\n\nStructures found: {len(structures)}\n\nDrugs found: {len(all_drugs)}\n\nSuccessful dockings: {len(all_docking_results)}"
+
+    if all_docking_results and settings.anthropic_api_key:
+        try:
+            # Build drug-to-metadata lookup
+            drug_meta = {}
+            for d in all_drugs:
+                if d.get("name"):
+                    drug_meta[d["name"]] = d
+
+            # Use top target for the report (highest-scoring target with docking results)
+            top_target = targets[0] if targets else {"symbol": "Unknown", "name": "Unknown"}
+
+            # Build report input from top docking results (up to 10)
+            report_input = []
+            for dr in all_docking_results[:10]:
+                meta = drug_meta.get(dr.get("drug_name", ""), {})
+                report_input.append({
+                    "drug_name": dr.get("drug_name"),
+                    "smiles": dr["smiles"],
+                    "confidence_score": dr["confidence_score"],
+                    "mechanism": meta.get("mechanism"),
+                    "max_phase": meta.get("max_phase"),
+                })
+
+            report_result = generate_report(
+                api_key=settings.anthropic_api_key,
+                disease=disease_info["name"],
+                target={"symbol": top_target["symbol"], "name": top_target["name"]},
+                results=report_input,
+            )
+
+            report_text = report_result["report_text"]
+
+            # Enrich docking results with explanations from the report
+            explanation_map = {
+                c["drug_name"]: c for c in report_result.get("candidates", [])
+            }
+            for dr in all_docking_results:
+                expl = explanation_map.get(dr.get("drug_name"), {})
+                dr["explanation"] = expl.get("explanation", "")
+                dr["risk_benefit"] = expl.get("risk_benefit", "")
+                dr["priority_rank"] = expl.get("priority_rank")
+
+        except Exception as e:
+            print(f"Warning: Report generation failed: {e}")
+            # Keep the fallback report_text
 
     return PipelineResult(
         disease=disease_info["name"],
@@ -148,5 +196,5 @@ async def run_pipeline(request: PipelineRequest):
         structures=structures,
         drugs=all_drugs,
         docking_results=all_docking_results,
-        report=f"# Pipeline for {disease_info['name']}\n\nTarget symbols: {', '.join(target_symbols)}\n\nStructures found: {len(structures)}\n\nDrugs found: {len(all_drugs)}\n\nSuccessful dockings: {len(all_docking_results)}",
+        report=report_text,
     )
