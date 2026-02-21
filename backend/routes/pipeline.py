@@ -112,6 +112,18 @@ async def run_pipeline(request: PipelineRequest):
             all_drugs.extend(drugs_list)
         print(f"Processed {min(i + batch_size, len(target_symbols))}/{len(target_symbols)} drug searches")
 
+    # Deduplicate drugs by name and cap to max_candidates
+    seen_drug_names: set[str] = set()
+    capped_drugs: list[dict] = []
+    for d in all_drugs:
+        key = d.get("name") or d.get("smiles", "")
+        if key not in seen_drug_names:
+            seen_drug_names.add(key)
+            capped_drugs.append(d)
+    if len(capped_drugs) > request.max_candidates:
+        capped_drugs = capped_drugs[:request.max_candidates]
+    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates})")
+
     # Step 5: Run docking simulations
     settings = get_settings()
     if not settings.nvidia_nim_api_key:
@@ -123,7 +135,7 @@ async def run_pipeline(request: PipelineRequest):
         pdb_id = structure["pdb_id"]
 
         # Find drugs for this target
-        target_drugs = [d for d in all_drugs if d["target_symbol"] == symbol]
+        target_drugs = [d for d in capped_drugs if d["target_symbol"] == symbol]
         if not target_drugs:
             print(f"Warning: No drugs found for {symbol}, skipping docking")
             continue
@@ -301,6 +313,18 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         "drugs": all_drugs,
     }})
 
+    # Deduplicate drugs by name and cap to max_candidates
+    seen_drug_names: set[str] = set()
+    capped_drugs: list[dict] = []
+    for d in all_drugs:
+        key = d.get("name") or d.get("smiles", "")
+        if key not in seen_drug_names:
+            seen_drug_names.add(key)
+            capped_drugs.append(d)
+    if len(capped_drugs) > request.max_candidates:
+        capped_drugs = capped_drugs[:request.max_candidates]
+    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates})")
+
     # Step 4: Docking
     yield _sse_event("step", {"step": 4, "status": "running"})
     if not settings.nvidia_nim_api_key:
@@ -311,7 +335,7 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
     for structure in structures:
         symbol = structure["symbol"]
         pdb_id = structure["pdb_id"]
-        target_drugs = [d for d in all_drugs if d["target_symbol"] == symbol]
+        target_drugs = [d for d in capped_drugs if d["target_symbol"] == symbol]
         if not target_drugs:
             print(f"Warning: No drugs found for {symbol}, skipping docking")
             continue

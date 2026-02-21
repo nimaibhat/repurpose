@@ -503,11 +503,11 @@ export default function ResearchPage() {
                         <p className="text-xs font-light tracking-[0.12em] uppercase text-white/60 mb-2.5">
                           Max Candidates to Dock
                         </p>
-                        <div className="flex gap-2">
-                          {[10, 25, 50].map((n) => (
+                        <div className="flex items-center gap-2 mb-3">
+                          {[10, 25, 50, 100].map((n) => (
                             <button
                               key={n}
-                              className={`px-5 py-2.5 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
+                              className={`px-4 py-2 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
                                 maxCandidates === n
                                   ? 'border-white/15 bg-white/[0.06] text-white/70'
                                   : 'border-white/[0.05] bg-transparent text-white/45 hover:text-white/60 hover:border-white/[0.1]'
@@ -517,7 +517,32 @@ export default function ResearchPage() {
                               {n}
                             </button>
                           ))}
+                          <button
+                            className={`px-4 py-2 rounded-lg text-sm font-light tracking-wide border transition-all duration-300 cursor-pointer ${
+                              maxCandidates === 9999
+                                ? 'border-white/15 bg-white/[0.06] text-white/70'
+                                : 'border-white/[0.05] bg-transparent text-white/45 hover:text-white/60 hover:border-white/[0.1]'
+                              }`}
+                            onClick={() => setMaxCandidates(9999)}
+                          >
+                            All
+                          </button>
                         </div>
+                        {maxCandidates !== 9999 && (
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min={5}
+                              max={200}
+                              value={maxCandidates}
+                              onChange={(e) => setMaxCandidates(parseInt(e.target.value, 10))}
+                              className="flex-1 h-1 appearance-none bg-white/[0.08] rounded-full cursor-pointer accent-blue-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400"
+                            />
+                            <span className="text-sm font-mono font-light text-white/50 tabular-nums w-8 text-right">
+                              {maxCandidates}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </motion.div>
