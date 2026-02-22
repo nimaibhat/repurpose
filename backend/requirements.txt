@@ -11,3 +11,4 @@ torch>=2.0
 torch-geometric>=2.4
 biopython>=1.80
 scipy>=1.10
+xgboost

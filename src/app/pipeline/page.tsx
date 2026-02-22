@@ -700,7 +700,7 @@ function PipelineContent() {
 
         {/* Stepper Row */}
         <motion.div
-          className="max-w-3xl mx-auto px-8 mt-4 mb-10"
+          className="w-full px-8 mt-4 mb-10 flex justify-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.2 }}
