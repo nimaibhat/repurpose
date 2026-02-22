@@ -39,6 +39,9 @@ interface Candidate {
   risk_benefit?: string;
   max_phase?: number;
   admet?: AdmetProfile;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
 }
 
 interface DockingEntry {
@@ -53,6 +56,9 @@ interface DockingResultFull {
   ligand_sdf: string;
   pdb_id: string;
   target_symbol: string;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
 }
 
 interface ResultsData {
@@ -66,7 +72,7 @@ interface ResultsData {
   all_docking_results?: DockingResultFull[];
 }
 
-type SortMode = 'combined' | 'binding' | 'safety' | 'alphabetical' | 'phase';
+type SortMode = 'combined' | 'binding' | 'affinity' | 'safety' | 'alphabetical' | 'phase';
 type DetailTab = 'explanation' | 'safety' | 'mechanism' | 'report';
 type ViewMode = 'list' | 'heatmap';
 
@@ -89,6 +95,14 @@ const ADMET_PROPERTIES = [
 ] as const;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatKd(kdNm: number): string {
+  if (kdNm < 0.001) return `${(kdNm * 1e6).toFixed(1)} fM`;
+  if (kdNm < 1) return `${(kdNm * 1e3).toFixed(1)} pM`;
+  if (kdNm < 1000) return `${kdNm.toFixed(1)} nM`;
+  if (kdNm < 1e6) return `${(kdNm / 1e3).toFixed(1)} \u00B5M`;
+  return `${(kdNm / 1e6).toFixed(1)} mM`;
+}
 
 function scoreLargeTextClass(score: number): string {
   if (score >= 0.7) return 'text-emerald-400';
@@ -121,6 +135,8 @@ function sortCandidates(candidates: Candidate[], mode: SortMode): Candidate[] {
       return sorted.sort((a, b) => getCombinedScore(b) - getCombinedScore(a));
     case 'binding':
       return sorted.sort((a, b) => b.confidence_score - a.confidence_score);
+    case 'affinity':
+      return sorted.sort((a, b) => (b.affinity_score ?? 0) - (a.affinity_score ?? 0));
     case 'safety':
       return sorted.sort((a, b) => (b.admet?.overall_score ?? 0) - (a.admet?.overall_score ?? 0));
     case 'alphabetical':
@@ -584,6 +600,7 @@ function ResultsContent() {
                   {([
                     { mode: 'combined' as SortMode, label: 'Combined' },
                     { mode: 'binding' as SortMode, label: 'Binding' },
+                    { mode: 'affinity' as SortMode, label: 'Affinity' },
                     { mode: 'safety' as SortMode, label: 'Safety' },
                     { mode: 'phase' as SortMode, label: 'Phase' },
                     { mode: 'alphabetical' as SortMode, label: 'A-Z' },
@@ -673,6 +690,24 @@ function ResultsContent() {
                               </span>
                             </div>
 
+                            {/* Affinity bar — purple */}
+                            {c.affinity_score != null && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Affinity</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                  <motion.div
+                                    className="h-full rounded-full bg-purple-500"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${Math.min(c.affinity_score * 100, 100)}%` }}
+                                    transition={{ duration: 0.8, delay: 0.05, ease }}
+                                  />
+                                </div>
+                                <span className="text-xs font-mono font-light tabular-nums w-9 text-right text-purple-400/80">
+                                  {c.predicted_kd_nm != null ? formatKd(c.predicted_kd_nm) : c.affinity_score.toFixed(2)}
+                                </span>
+                              </div>
+                            )}
+
                             {/* Safety bar — colored by score */}
                             {admet && (
                               <div className="flex items-center gap-2">
@@ -682,7 +717,7 @@ function ResultsContent() {
                                     className={`h-full rounded-full ${scoreBg(admet.overall_score)}`}
                                     initial={{ width: 0 }}
                                     animate={{ width: `${Math.min(admet.overall_score * 100, 100)}%` }}
-                                    transition={{ duration: 0.8, delay: 0.1, ease }}
+                                    transition={{ duration: 0.8, delay: 0.15, ease }}
                                   />
                                 </div>
                                 <span className={`text-xs font-mono font-light tabular-nums w-9 text-right ${scoreTextClass(admet.overall_score)}`}>
@@ -755,6 +790,17 @@ function ResultsContent() {
                           {selected.confidence_score.toFixed(2)}
                         </span>
                       </div>
+                      {selected.predicted_kd_nm != null && (
+                        <>
+                          <div className="w-px h-5 bg-white/[0.1]" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-light text-purple-400/70 tracking-wide uppercase">Affinity</span>
+                            <span className="text-lg font-light tabular-nums text-purple-400">
+                              {formatKd(selected.predicted_kd_nm)}
+                            </span>
+                          </div>
+                        </>
+                      )}
                       {selected.admet && (
                         <>
                           <div className="w-px h-5 bg-white/[0.1]" />
@@ -829,6 +875,31 @@ function ResultsContent() {
                             <p className="text-white/45 italic">No AI explanation available for this candidate.</p>
                           )}
                         </div>
+
+                        {selected.predicted_pkd != null && (
+                          <div className="mt-5 pt-4 border-t border-white/[0.05]">
+                            <p className="text-xs font-light tracking-[0.15em] uppercase text-white/45 mb-3">
+                              Predicted Binding Affinity
+                            </p>
+                            <div className="flex items-center gap-4">
+                              <div className="px-4 py-3 rounded-xl border border-purple-500/20 bg-purple-500/[0.06]">
+                                <span className="text-xs font-light text-purple-400/60 uppercase tracking-wide">Kd</span>
+                                <p className="text-lg font-light text-purple-400 tabular-nums">
+                                  {selected.predicted_kd_nm != null ? formatKd(selected.predicted_kd_nm) : 'N/A'}
+                                </p>
+                              </div>
+                              <div className="px-4 py-3 rounded-xl border border-purple-500/20 bg-purple-500/[0.06]">
+                                <span className="text-xs font-light text-purple-400/60 uppercase tracking-wide">pKd</span>
+                                <p className="text-lg font-light text-purple-400 tabular-nums">
+                                  {selected.predicted_pkd.toFixed(2)}
+                                </p>
+                              </div>
+                              <p className="text-xs font-light text-white/40 leading-relaxed max-w-xs">
+                                GNN-predicted from 3D protein-ligand complex. pKd {'>'} 7 is strong, 5-7 moderate, {'<'} 5 weak.
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
                         {selected.risk_benefit && (
                           <div className="mt-5 pt-4 border-t border-white/[0.05]">

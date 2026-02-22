@@ -66,6 +66,9 @@ class DockingResult(BaseModel):
     confidence_score: float
     ligand_sdf: str
     num_poses: int
+    predicted_pkd: float | None = None
+    predicted_kd_nm: float | None = None
+    affinity_score: float | None = None
 
 
 class DockingResponse(BaseModel):

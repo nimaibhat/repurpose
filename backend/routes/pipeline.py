@@ -16,6 +16,7 @@ from services.chembl import search_drugs
 from services.nvidia_nim import run_diffdock_batch
 from services.claude import generate_report
 from services.admet import predict_admet_batch, build_admet_summary
+from services.gnn_affinity import predict_binding_affinity
 from config import get_settings
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -182,6 +183,26 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
     # Sort all docking results by confidence
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
+    # GNN binding affinity predictions
+    affinity_count = 0
+    for dr in all_docking_results:
+        pdb_path = STRUCTURES_DIR / f"{dr['pdb_id']}.pdb"
+        if pdb_path.exists() and dr.get("ligand_sdf"):
+            affinity = predict_binding_affinity(pdb_path.read_text(), dr["ligand_sdf"])
+            dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
+            dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
+            if affinity:
+                dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
+                affinity_count += 1
+            else:
+                dr["affinity_score"] = None
+        else:
+            dr["predicted_pkd"] = None
+            dr["predicted_kd_nm"] = None
+            dr["affinity_score"] = None
+    if affinity_count:
+        print(f"GNN affinity predicted for {affinity_count}/{len(all_docking_results)} compounds")
+
     # Step 5: ADMET predictions
     admet_smiles = [dr["smiles"] for dr in all_docking_results]
     admet_names = [dr.get("drug_name") for dr in all_docking_results]
@@ -193,9 +214,16 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
 
     # Compute combined score and re-sort
     for dr in all_docking_results:
-        dr["combined_score"] = round(
-            dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
-        )
+        if dr.get("affinity_score") is not None:
+            dr["combined_score"] = round(
+                dr["confidence_score"] * 0.35
+                + dr["affinity_score"] * 0.30
+                + dr["admet"]["overall_score"] * 0.35, 4
+            )
+        else:
+            dr["combined_score"] = round(
+                dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
+            )
     all_docking_results.sort(key=lambda r: r["combined_score"], reverse=True)
 
     # Step 6: Generate AI report
@@ -227,6 +255,9 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
                     "max_phase": meta.get("max_phase"),
                     "admet": dr["admet"],
                     "combined_score": dr["combined_score"],
+                    "predicted_pkd": dr.get("predicted_pkd"),
+                    "predicted_kd_nm": dr.get("predicted_kd_nm"),
+                    "affinity_score": dr.get("affinity_score"),
                 })
 
             report_result = generate_report(
@@ -267,6 +298,9 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
             "mechanism": meta.get("mechanism"),
             "explanation": dr.get("explanation", ""),
             "admet": dr["admet"],
+            "predicted_pkd": dr.get("predicted_pkd"),
+            "predicted_kd_nm": dr.get("predicted_kd_nm"),
+            "affinity_score": dr.get("affinity_score"),
         })
 
     return PipelineResult(
@@ -410,10 +444,31 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         dr["confidence_score"] = round(max(0.0, min(1.0, (raw + 5.0) / 5.0)), 4)
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
+    # GNN binding affinity predictions
+    affinity_count = 0
+    for dr in all_docking_results:
+        pdb_path = STRUCTURES_DIR / f"{dr['pdb_id']}.pdb"
+        if pdb_path.exists() and dr.get("ligand_sdf"):
+            affinity = predict_binding_affinity(pdb_path.read_text(), dr["ligand_sdf"])
+            dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
+            dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
+            if affinity:
+                dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
+                affinity_count += 1
+            else:
+                dr["affinity_score"] = None
+        else:
+            dr["predicted_pkd"] = None
+            dr["predicted_kd_nm"] = None
+            dr["affinity_score"] = None
+    if affinity_count:
+        print(f"GNN affinity predicted for {affinity_count}/{len(all_docking_results)} compounds")
+
     top_drug_name = all_docking_results[0].get("drug_name", "Unknown") if all_docking_results else "N/A"
     top_drug_score = all_docking_results[0]["confidence_score"] if all_docking_results else 0
+    affinity_msg = f" | Affinity: {affinity_count} predicted" if affinity_count else ""
     yield _sse_event("step", {"step": 4, "status": "complete",
-        "message": f"Docked {len(all_docking_results)} compounds. Top: {top_drug_name} ({top_drug_score})",
+        "message": f"Docked {len(all_docking_results)} compounds. Top: {top_drug_name} ({top_drug_score}){affinity_msg}",
         "data": {"docking_results": all_docking_results},
     })
 
@@ -431,9 +486,16 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
 
     # Compute combined score and re-sort
     for dr in all_docking_results:
-        dr["combined_score"] = round(
-            dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
-        )
+        if dr.get("affinity_score") is not None:
+            dr["combined_score"] = round(
+                dr["confidence_score"] * 0.35
+                + dr["affinity_score"] * 0.30
+                + dr["admet"]["overall_score"] * 0.35, 4
+            )
+        else:
+            dr["combined_score"] = round(
+                dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
+            )
     all_docking_results.sort(key=lambda r: r["combined_score"], reverse=True)
 
     n_pass = sum(1 for dr in all_docking_results if dr["admet"]["pass_fail"] == "pass")
@@ -477,6 +539,9 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
                     "max_phase": meta.get("max_phase"),
                     "admet": dr["admet"],
                     "combined_score": dr["combined_score"],
+                    "predicted_pkd": dr.get("predicted_pkd"),
+                    "predicted_kd_nm": dr.get("predicted_kd_nm"),
+                    "affinity_score": dr.get("affinity_score"),
                 })
 
             report_result = generate_report(
@@ -517,6 +582,9 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
             "mechanism": meta.get("mechanism"),
             "explanation": dr.get("explanation", ""),
             "admet": dr["admet"],
+            "predicted_pkd": dr.get("predicted_pkd"),
+            "predicted_kd_nm": dr.get("predicted_kd_nm"),
+            "affinity_score": dr.get("affinity_score"),
         })
 
     yield _sse_event("done", {"step": 6, "status": "complete", "data": {

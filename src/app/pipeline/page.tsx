@@ -49,6 +49,9 @@ interface DockingResult {
   explanation?: string;
   risk_benefit?: string;
   priority_rank?: number;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
 }
 
 interface AdmetSummary {
@@ -73,6 +76,9 @@ interface PipelineCandidate {
   mechanism?: string;
   explanation?: string;
   admet: AdmetSummary;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
 }
 
 interface PipelineResponse {
@@ -83,6 +89,16 @@ interface PipelineResponse {
   docking_results: DockingResult[];
   candidates: PipelineCandidate[];
   report: string;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatKd(kdNm: number): string {
+  if (kdNm < 0.001) return `${(kdNm * 1e6).toFixed(1)} fM`;
+  if (kdNm < 1) return `${(kdNm * 1e3).toFixed(1)} pM`;
+  if (kdNm < 1000) return `${kdNm.toFixed(1)} nM`;
+  if (kdNm < 1e6) return `${(kdNm / 1e3).toFixed(1)} \u00B5M`;
+  return `${(kdNm / 1e6).toFixed(1)} mM`;
 }
 
 // ─── SSE Reducer ────────────────────────────────────────────────────────────
@@ -733,19 +749,28 @@ function PipelineContent() {
                         <span className="text-xs font-light text-white/45 tracking-wide uppercase">
                           Viewing:
                         </span>
-                        {dockingViewData.slice(0, 8).map((d, i) => (
-                          <button
-                            key={i}
-                            onClick={() => setSelectedDocking(i)}
-                            className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 ${
-                              selectedDocking === i
-                                ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
-                                : 'border border-white/[0.05] text-white/50 hover:text-white/50'
-                            }`}
-                          >
-                            {d.drug_name}
-                          </button>
-                        ))}
+                        {dockingViewData.slice(0, 8).map((d, i) => {
+                          const dr = dockingData[i];
+                          const kdNm = dr?.predicted_kd_nm;
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => setSelectedDocking(i)}
+                              className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 flex items-center gap-1.5 ${
+                                selectedDocking === i
+                                  ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
+                                  : 'border border-white/[0.05] text-white/50 hover:text-white/50'
+                              }`}
+                            >
+                              {d.drug_name}
+                              {kdNm != null && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/[0.12] text-purple-400/80 text-[10px]">
+                                  {formatKd(kdNm)}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                     <div className="w-full aspect-[3/2]">
