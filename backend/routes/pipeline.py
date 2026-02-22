@@ -16,7 +16,7 @@ from services.chembl import search_drugs
 from services.nvidia_nim import run_diffdock_batch
 from services.claude import generate_report
 from services.admet import predict_admet_batch, build_admet_summary
-from services.gnn_affinity import predict_binding_affinity
+from services.xgb_affinity import predict_binding_affinity
 from services.novelty import check_novelty_batch
 from config import get_settings
 
@@ -185,28 +185,18 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
     # Sort all docking results by confidence
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
-    # GNN binding affinity predictions
+    # XGBoost binding affinity predictions (SMILES-only)
     affinity_count = 0
     for dr in all_docking_results:
-        pdb_path = STRUCTURES_DIR / f"{dr['pdb_id']}.pdb"
-        has_sdf = bool(dr.get("ligand_sdf"))
-        if pdb_path.exists() and has_sdf:
-            affinity = predict_binding_affinity(pdb_path.read_text(), dr["ligand_sdf"])
-            dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
-            dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
-            if affinity:
-                dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
-                affinity_count += 1
-                print(f"  GNN {dr.get('drug_name')}: pKd={affinity['predicted_pkd']}, Kd={affinity['predicted_kd_nm']} nM, score={dr['affinity_score']}")
-            else:
-                dr["affinity_score"] = None
-                print(f"  GNN {dr.get('drug_name')}: featurization failed (pdb={dr['pdb_id']}, sdf_len={len(dr['ligand_sdf'])})")
+        affinity = predict_binding_affinity(dr["smiles"])
+        dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
+        dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
+        if affinity:
+            dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
+            affinity_count += 1
         else:
-            dr["predicted_pkd"] = None
-            dr["predicted_kd_nm"] = None
             dr["affinity_score"] = None
-            print(f"  GNN skip {dr.get('drug_name')}: pdb_exists={pdb_path.exists()}, has_sdf={has_sdf}")
-    print(f"GNN affinity: {affinity_count}/{len(all_docking_results)} predicted")
+    print(f"XGBoost affinity: {affinity_count}/{len(all_docking_results)} predicted")
 
     # Step 5: ADMET predictions
     admet_smiles = [dr["smiles"] for dr in all_docking_results]
@@ -477,28 +467,18 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         dr["confidence_score"] = round(max(0.0, min(1.0, (raw + 5.0) / 5.0)), 4)
     all_docking_results.sort(key=lambda r: r["confidence_score"], reverse=True)
 
-    # GNN binding affinity predictions
+    # XGBoost binding affinity predictions (SMILES-only)
     affinity_count = 0
     for dr in all_docking_results:
-        pdb_path = STRUCTURES_DIR / f"{dr['pdb_id']}.pdb"
-        has_sdf = bool(dr.get("ligand_sdf"))
-        if pdb_path.exists() and has_sdf:
-            affinity = predict_binding_affinity(pdb_path.read_text(), dr["ligand_sdf"])
-            dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
-            dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
-            if affinity:
-                dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
-                affinity_count += 1
-                print(f"  GNN {dr.get('drug_name')}: pKd={affinity['predicted_pkd']}, Kd={affinity['predicted_kd_nm']} nM, score={dr['affinity_score']}")
-            else:
-                dr["affinity_score"] = None
-                print(f"  GNN {dr.get('drug_name')}: featurization failed (pdb={dr['pdb_id']}, sdf_len={len(dr['ligand_sdf'])})")
+        affinity = predict_binding_affinity(dr["smiles"])
+        dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
+        dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
+        if affinity:
+            dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
+            affinity_count += 1
         else:
-            dr["predicted_pkd"] = None
-            dr["predicted_kd_nm"] = None
             dr["affinity_score"] = None
-            print(f"  GNN skip {dr.get('drug_name')}: pdb_exists={pdb_path.exists()}, has_sdf={has_sdf}")
-    print(f"GNN affinity: {affinity_count}/{len(all_docking_results)} predicted")
+    print(f"XGBoost affinity: {affinity_count}/{len(all_docking_results)} predicted")
 
     top_drug_name = all_docking_results[0].get("drug_name", "Unknown") if all_docking_results else "N/A"
     top_drug_score = all_docking_results[0]["confidence_score"] if all_docking_results else 0

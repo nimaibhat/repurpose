@@ -76,7 +76,7 @@ interface ResultsData {
   all_docking_results?: DockingResultFull[];
 }
 
-type SortMode = 'combined' | 'binding' | 'affinity' | 'safety' | 'novelty' | 'alphabetical' | 'phase';
+type SortMode = 'combined' | 'binding' | 'affinity' | 'safety' | 'novelty' | 'phase';
 type DetailTab = 'explanation' | 'safety' | 'mechanism' | 'report';
 type ViewMode = 'list' | 'heatmap';
 
@@ -149,8 +149,6 @@ function sortCandidates(candidates: Candidate[], mode: SortMode): Candidate[] {
         (noveltyOrder[a.novelty_status || 'unknown'] ?? 3) - (noveltyOrder[b.novelty_status || 'unknown'] ?? 3)
       );
     }
-    case 'alphabetical':
-      return sorted.sort((a, b) => (a.drug_name || '').localeCompare(b.drug_name || ''));
     case 'phase':
       return sorted.sort((a, b) => (b.max_phase || 0) - (a.max_phase || 0));
   }
@@ -362,6 +360,7 @@ function ResultsContent() {
   const [activeTab, setActiveTab] = useState<DetailTab>('explanation');
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
+
   const [panelFullscreen, setPanelFullscreen] = useState(false);
 
   // Load data from sessionStorage
@@ -398,7 +397,6 @@ function ResultsContent() {
     const candidate = sorted[idx];
     if (!candidate || !data) return;
     const docking = data.docking_data?.find((d) => d.drug_name === candidate.drug_name);
-    viewerRef.current?.setLigand(docking?.ligand_sdf || null);
     ligandViewerRef.current?.setLigand(docking?.ligand_sdf || null);
   }, [sorted, data]);
 
@@ -607,7 +605,6 @@ function ResultsContent() {
                       { mode: 'safety' as SortMode, label: 'Safety' },
                       { mode: 'novelty' as SortMode, label: 'Novel' },
                       { mode: 'phase' as SortMode, label: 'Phase' },
-                      { mode: 'alphabetical' as SortMode, label: 'A-Z' },
                     ]).map(({ mode, label }) => (
                       <button
                         key={mode}
@@ -670,6 +667,9 @@ function ResultsContent() {
                             <span className="text-sm font-light text-white/85 truncate flex-1">
                               {c.drug_name || 'Unknown Drug'}
                             </span>
+                            <span className="text-sm font-mono font-medium text-white/50 shrink-0">
+                              {c.combined_score?.toFixed(2)}
+                            </span>
                             {c.novelty_status === 'novel' && (
                               <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-light tracking-wide border border-teal-500/20 bg-teal-500/10 text-teal-400">
                                 Novel
@@ -723,7 +723,7 @@ function ResultsContent() {
                                   />
                                 </div>
                                 <span className="text-xs font-mono font-light tabular-nums w-9 text-right text-purple-400/80">
-                                  {c.predicted_kd_nm != null ? formatKd(c.predicted_kd_nm) : c.affinity_score.toFixed(2)}
+                                  {c.affinity_score.toFixed(2)}
                                 </span>
                               </div>
                             )}
@@ -985,7 +985,7 @@ function ResultsContent() {
                                 </p>
                               </div>
                               <p className="text-xs font-light text-white/40 leading-relaxed max-w-xs">
-                                GNN-predicted from 3D protein-ligand complex. pKd {'>'} 7 is strong, 5-7 moderate, {'<'} 5 weak.
+                                Predicted from molecular descriptors. pKd {'>'} 7 is strong, 5-7 moderate, {'<'} 5 weak.
                               </p>
                             </div>
                           </div>

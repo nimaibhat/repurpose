@@ -12,7 +12,7 @@ SYSTEM_PROMPT = (
     "drug to the target. Reference specific pathways and protein functions.\n\n"
     "IMPORTANT: You are given molecular docking scores (binding confidence, 0-1), "
     "ADMET safety profiles (absorption, distribution, metabolism, excretion, toxicity, "
-    "drug-likeness), and when available, GNN-predicted binding affinity (pKd and Kd in nM).\n\n"
+    "drug-likeness), and when available, predicted binding affinity (pKd and Kd in nM).\n\n"
     "- Prioritize compounds with high binding confidence, strong predicted affinity, "
     "AND good safety profiles.\n"
     "- When binding affinity is available, discuss it: lower Kd (nM) means tighter binding. "
@@ -56,7 +56,7 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
 
         affinity_line = ""
         if pkd is not None:
-            affinity_line = f"   - GNN predicted affinity: pKd={pkd}, Kd={kd_nm} nM (score={affinity_score})\n"
+            affinity_line = f"   - Predicted affinity: pKd={pkd}, Kd={kd_nm} nM (score={affinity_score})\n"
 
         novelty_status = r.get("novelty_status")
         novelty_detail = r.get("novelty_detail", "")

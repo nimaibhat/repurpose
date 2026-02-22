@@ -30,6 +30,7 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
     const proteinModelRef = useRef<any>(null);
     const ligandModelRef = useRef<any>(null);
     const surfaceRef = useRef<any>(null);
+    const pdbTextRef = useRef<string | undefined>(pdbText);
     const proteinStyleRef = useRef<ProteinStyle>(initialProteinStyle);
     const ligandVisibleRef = useRef(true);
     const currentLigandSdf = useRef<string | null>(initialLigandSdf || null);
@@ -83,9 +84,17 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       const viewer = viewerRef.current;
       if (!viewer) return;
 
-      if (ligandModelRef.current) {
-        viewer.removeModel(ligandModelRef.current);
-        ligandModelRef.current = null;
+      // Clear all models and rebuild — removeModel can leave stale geometry
+      viewer.removeAllModels();
+      viewer.removeAllSurfaces();
+      surfaceRef.current = null;
+      ligandModelRef.current = null;
+      proteinModelRef.current = null;
+
+      // Re-add protein if this viewer has one
+      if (pdbTextRef.current) {
+        proteinModelRef.current = viewer.addModel(pdbTextRef.current, 'pdb');
+        applyProteinStyle(proteinStyleRef.current);
       }
 
       currentLigandSdf.current = sdf;
@@ -102,7 +111,7 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       }
 
       viewer.render();
-    }, [styleLigand]);
+    }, [styleLigand, applyProteinStyle]);
 
     const setLigandVisible = useCallback((visible: boolean) => {
       const viewer = viewerRef.current;
