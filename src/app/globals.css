@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  font-size: clamp(15px, 1.05vw, 19px);
+}
+
 body {
   margin: 0;
   background-color: #000;

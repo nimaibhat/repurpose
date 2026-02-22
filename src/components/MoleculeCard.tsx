@@ -20,9 +20,9 @@ interface MoleculeCardProps {
 // ─── Size Config ────────────────────────────────────────────────────────────
 
 const sizeConfig = {
-  small:  { canvasW: 120, canvasH: 90  },
-  medium: { canvasW: 100, canvasH: 80  },
-  large:  { canvasW: 200, canvasH: 160 },
+  small:  { canvasW: 140, canvasH: 105 },
+  medium: { canvasW: 120, canvasH: 96  },
+  large:  { canvasW: 240, canvasH: 192 },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ function phaseLabel(phase?: number): { label: string; classes: string } {
   if (phase === 3) return { label: 'Phase 3',      classes: 'border-yellow-500/20 bg-yellow-500/[0.08] text-yellow-400/80' };
   if (phase === 2) return { label: 'Phase 2',      classes: 'border-blue-500/20 bg-blue-500/[0.08] text-blue-400/80' };
   if (phase === 1) return { label: 'Phase 1',      classes: 'border-purple-500/20 bg-purple-500/[0.08] text-purple-400/80' };
-  return { label: 'Preclinical', classes: 'border-white/[0.08] bg-white/[0.03] text-white/40' };
+  return { label: 'Preclinical', classes: 'border-white/[0.08] bg-white/[0.03] text-white/60' };
 }
 
 const ease = [0.16, 1, 0.3, 1] as const;
@@ -62,23 +62,23 @@ export default function MoleculeCard({
   rank,
   mechanism,
 }: MoleculeCardProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const svgRef = useRef<HTMLDivElement>(null);
   const [parseError, setParseError] = useState(false);
 
   const { canvasW, canvasH } = sizeConfig[size];
 
-  // ── SmilesDrawer rendering ──
+  // ── SmilesDrawer rendering (SvgDrawer avoids the Drawer.draw parameter bug in v2) ──
   useEffect(() => {
-    if (!canvasRef.current || !smiles) return;
+    if (!svgRef.current || !smiles) return;
     setParseError(false);
 
     let mounted = true;
 
     (async () => {
       const SmilesDrawer = (await import('smiles-drawer')).default;
-      if (!mounted || !canvasRef.current) return;
+      if (!mounted || !svgRef.current) return;
 
-      const drawer = new SmilesDrawer.Drawer({
+      const drawer = new SmilesDrawer.SvgDrawer({
         width: canvasW,
         height: canvasH,
         bondThickness: 1.2,
@@ -116,8 +116,22 @@ export default function MoleculeCard({
       SmilesDrawer.parse(
         smiles,
         (tree: any) => {
-          if (!mounted || !canvasRef.current) return;
-          drawer.draw(tree, canvasRef.current, 'dark');
+          if (!mounted || !svgRef.current) return;
+          svgRef.current.innerHTML = '';
+          drawer.draw(tree, 'svg', 'dark', false);
+          const svg = svgRef.current.querySelector('svg') || drawer.svgDrawer?.svgWrapper?.svg;
+          if (svg) {
+            svgRef.current.innerHTML = '';
+            svgRef.current.appendChild(svg);
+          } else {
+            // fallback: let SvgDrawer write directly to a target id
+            const id = `smiles-${Math.random().toString(36).slice(2)}`;
+            const el = document.createElement('svg');
+            el.id = id;
+            svgRef.current.innerHTML = '';
+            svgRef.current.appendChild(el);
+            drawer.draw(tree, id, 'dark', false);
+          }
         },
         () => {
           if (mounted) setParseError(true);
@@ -128,23 +142,21 @@ export default function MoleculeCard({
     return () => { mounted = false; };
   }, [smiles, canvasW, canvasH]);
 
-  // ── Canvas / fallback element ──
+  // ── SVG / fallback element ──
   const canvasEl = parseError ? (
     <div
       className="flex items-center justify-center rounded-lg bg-white/[0.02]"
       style={{ width: canvasW, height: canvasH }}
     >
-      <span className="text-[0.5rem] font-light text-white/20">
+      <span className="text-xs font-light text-white/60">
         Structure unavailable
       </span>
     </div>
   ) : (
-    <canvas
-      ref={canvasRef}
-      width={canvasW}
-      height={canvasH}
+    <div
+      ref={svgRef}
       className="rounded-lg"
-      style={{ width: canvasW, height: canvasH }}
+      style={{ width: canvasW, height: canvasH, overflow: 'hidden' }}
     />
   );
 
@@ -162,12 +174,12 @@ export default function MoleculeCard({
       >
         {canvasEl}
         {drugName && (
-          <span className="text-[0.6rem] font-light text-white/60 text-center leading-tight truncate w-full">
+          <span className="text-xs font-light text-white/60 text-center leading-tight truncate w-full">
             {drugName}
           </span>
         )}
         {confidence !== undefined && (
-          <span className={`text-[0.5rem] font-light tracking-wide ${scoreTextClass(confidence)}`}>
+          <span className={`text-xs font-light tracking-wide ${scoreTextClass(confidence)}`}>
             Score: {confidence.toFixed(2)}
           </span>
         )}
@@ -211,7 +223,7 @@ export default function MoleculeCard({
           {/* Rank + Name */}
           <div className="flex items-center gap-2 mb-1">
             {rank !== undefined && (
-              <span className="text-[0.55rem] font-mono font-light text-white/20">
+              <span className="text-xs font-mono font-light text-white/60">
                 #{rank}
               </span>
             )}
@@ -234,7 +246,7 @@ export default function MoleculeCard({
                     transition={{ duration: 0.8, ease }}
                   />
                 </div>
-                <span className={`text-[0.6rem] font-mono font-light tabular-nums ${scoreTextClass(confidence)}`}>
+                <span className={`text-xs font-mono font-light tabular-nums ${scoreTextClass(confidence)}`}>
                   {confidence.toFixed(2)}
                 </span>
               </div>
@@ -245,7 +257,7 @@ export default function MoleculeCard({
           {pb && (
             <div className="flex items-center gap-2 flex-wrap">
               <span
-                className={`inline-block px-1.5 py-0.5 rounded text-[0.5rem] font-light tracking-wide border ${pb.classes}`}
+                className={`inline-block px-3 py-1 rounded text-xs font-light tracking-wide border ${pb.classes}`}
               >
                 {pb.label}
               </span>
@@ -254,7 +266,7 @@ export default function MoleculeCard({
 
           {/* Mechanism */}
           {mechanism && (
-            <p className="mt-1.5 text-[0.6rem] font-light text-white/30 leading-relaxed line-clamp-1">
+            <p className="mt-1.5 text-xs font-light text-white/50 leading-relaxed line-clamp-1">
               {mechanism}
             </p>
           )}

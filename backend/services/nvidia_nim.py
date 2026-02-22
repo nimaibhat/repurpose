@@ -11,7 +11,9 @@ from rdkit.Chem import AllChem
 DIFFDOCK_URL = "https://health.api.nvidia.com/v1/biology/mit/diffdock"
 ASSETS_URL = "https://api.nvcf.nvidia.com/v2/nvcf/assets"
 TIMEOUT = 90.0
-MAX_CONCURRENT = 3
+MAX_CONCURRENT = 2
+RPM_LIMIT = 35  # stay under 40 RPM cap with headroom
+MAX_RETRIES = 3
 
 # Rate limiting: 40 calls per minute
 RATE_LIMIT_CALLS = 40
@@ -79,6 +81,31 @@ class RateLimiter:
             self.last_call_time = time.time()
 
 
+class RateLimiter:
+    """Sliding-window rate limiter for async HTTP calls."""
+
+    def __init__(self, max_requests: int, window_seconds: float = 60.0):
+        self._max = max_requests
+        self._window = window_seconds
+        self._timestamps: deque[float] = deque()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        async with self._lock:
+            now = time.monotonic()
+            # Evict timestamps outside the window
+            while self._timestamps and self._timestamps[0] <= now - self._window:
+                self._timestamps.popleft()
+            if len(self._timestamps) >= self._max:
+                sleep_until = self._timestamps[0] + self._window
+                delay = sleep_until - now
+                if delay > 0:
+                    logger.info("Rate limit: sleeping %.1fs", delay)
+                    await asyncio.sleep(delay)
+                self._timestamps.popleft()
+            self._timestamps.append(time.monotonic())
+
+
 class DiffDockError(Exception):
     pass
 
@@ -95,8 +122,11 @@ def smiles_to_sdf(smiles: str) -> str | None:
     return Chem.MolToMolBlock(mol)
 
 
-async def _upload_asset(client: httpx.AsyncClient, api_key: str, content: str) -> str:
+async def _upload_asset(
+    client: httpx.AsyncClient, api_key: str, content: str, limiter: RateLimiter,
+) -> str:
     """Upload a file to NVCF assets and return the asset ID."""
+    await limiter.acquire()
     resp = await client.post(
         ASSETS_URL,
         headers={
@@ -108,6 +138,7 @@ async def _upload_asset(client: httpx.AsyncClient, api_key: str, content: str) -
     resp.raise_for_status()
     data = resp.json()
 
+    await limiter.acquire()
     resp = await client.put(
         data["uploadUrl"],
         content=content.encode(),
@@ -129,6 +160,7 @@ async def _dock_single(
     protein_asset_id: str,
     smiles: str,
     drug_name: str | None,
+    limiter: RateLimiter,
 ) -> dict | None:
     """Dock a single ligand against a protein. Returns best pose or None on failure."""
     start_time = time.time()
