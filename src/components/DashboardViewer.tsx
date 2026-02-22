@@ -2,17 +2,18 @@
 
 import { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 
-export type ProteinStyle = 'cartoon' | 'surface' | 'ballstick';
+export type ProteinStyle = 'cartoon' | 'surface' | 'ballstick' | 'hidden';
 
 export interface DashboardViewerHandle {
   setLigand: (sdf: string | null) => void;
+  setProtein: (pdbText: string) => void;
   setProteinStyle: (style: ProteinStyle) => void;
   setLigandVisible: (visible: boolean) => void;
   resetView: () => void;
 }
 
 interface DashboardViewerProps {
-  pdbText: string;
+  pdbText?: string;
   initialLigandSdf?: string;
   initialProteinStyle?: ProteinStyle;
   height?: number | string;
@@ -30,6 +31,7 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
     const proteinModelRef = useRef<any>(null);
     const ligandModelRef = useRef<any>(null);
     const surfaceRef = useRef<any>(null);
+    const pdbTextRef = useRef<string | undefined>(pdbText);
     const proteinStyleRef = useRef<ProteinStyle>(initialProteinStyle);
     const ligandVisibleRef = useRef(true);
     const currentLigandSdf = useRef<string | null>(initialLigandSdf || null);
@@ -62,6 +64,9 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
             sphere: { scale: 0.25, colorscheme: 'Jmol' },
           });
           break;
+        case 'hidden':
+          viewer.setStyle(sel, {});
+          break;
       }
 
       proteinStyleRef.current = style;
@@ -80,9 +85,17 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       const viewer = viewerRef.current;
       if (!viewer) return;
 
-      if (ligandModelRef.current) {
-        viewer.removeModel(ligandModelRef.current);
-        ligandModelRef.current = null;
+      // Clear all models and rebuild — removeModel can leave stale geometry
+      viewer.removeAllModels();
+      viewer.removeAllSurfaces();
+      surfaceRef.current = null;
+      ligandModelRef.current = null;
+      proteinModelRef.current = null;
+
+      // Re-add protein if this viewer has one
+      if (pdbTextRef.current) {
+        proteinModelRef.current = viewer.addModel(pdbTextRef.current, 'pdb');
+        applyProteinStyle(proteinStyleRef.current);
       }
 
       currentLigandSdf.current = sdf;
@@ -92,12 +105,42 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         styleLigand(model);
         ligandModelRef.current = model;
         viewer.zoomTo({ model: model }, 1000);
+      } else if (proteinModelRef.current) {
+        viewer.zoomTo({ model: proteinModelRef.current });
+      } else {
+        viewer.zoomTo();
+      }
+
+      viewer.render();
+    }, [styleLigand, applyProteinStyle]);
+
+    const setProtein = useCallback((newPdbText: string) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+
+      viewer.removeAllModels();
+      viewer.removeAllSurfaces();
+      surfaceRef.current = null;
+      proteinModelRef.current = null;
+      ligandModelRef.current = null;
+
+      pdbTextRef.current = newPdbText;
+
+      proteinModelRef.current = viewer.addModel(newPdbText, 'pdb');
+      applyProteinStyle(proteinStyleRef.current);
+
+      // Re-add current ligand if present
+      if (currentLigandSdf.current && ligandVisibleRef.current) {
+        const model = viewer.addModel(currentLigandSdf.current, 'sdf');
+        styleLigand(model);
+        ligandModelRef.current = model;
+        viewer.zoomTo({ model }, 800);
       } else {
         viewer.zoomTo({ model: proteinModelRef.current });
       }
 
       viewer.render();
-    }, [styleLigand]);
+    }, [applyProteinStyle, styleLigand]);
 
     const setLigandVisible = useCallback((visible: boolean) => {
       const viewer = viewerRef.current;
@@ -163,10 +206,11 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
 
     useImperativeHandle(ref, () => ({
       setLigand,
+      setProtein,
       setProteinStyle,
       setLigandVisible,
       resetView,
-    }), [setLigand, setProteinStyle, setLigandVisible, resetView]);
+    }), [setLigand, setProtein, setProteinStyle, setLigandVisible, resetView]);
 
     // Cursor-centric wheel zoom — intercept in capture phase before 3Dmol's listener
     useEffect(() => {
@@ -208,7 +252,7 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
 
     // Initialize viewer once
     useEffect(() => {
-      if (!containerRef.current || !pdbText || readyRef.current) return;
+      if (!containerRef.current || (!pdbText && !initialLigandSdf) || readyRef.current) return;
 
       let mounted = true;
 
@@ -223,8 +267,10 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         });
         viewerRef.current = viewer;
 
-        proteinModelRef.current = viewer.addModel(pdbText, 'pdb');
-        applyProteinStyle(proteinStyleRef.current);
+        if (pdbText) {
+          proteinModelRef.current = viewer.addModel(pdbText, 'pdb');
+          applyProteinStyle(proteinStyleRef.current);
+        }
 
         if (initialLigandSdf) {
           const ligand = viewer.addModel(initialLigandSdf, 'sdf');

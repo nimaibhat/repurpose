@@ -24,6 +24,7 @@ venv/
 # misc
 .DS_Store
 *.pem
+tsconfig.tsbuildinfo
 
 # backend data
 backend/data/

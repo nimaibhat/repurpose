@@ -76,7 +76,7 @@ async def get_molecule(client: httpx.AsyncClient, molecule_chembl_id: str) -> di
 
     return {
         "chembl_id": molecule_chembl_id,
-        "name": data.get("pref_name"),
+        "name": data.get("pref_name") or molecule_chembl_id,
         "smiles": smiles,
         "max_phase": max_phase,
     }

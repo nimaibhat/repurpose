@@ -49,6 +49,9 @@ interface DockingResult {
   explanation?: string;
   risk_benefit?: string;
   priority_rank?: number;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
 }
 
 interface AdmetSummary {
@@ -73,6 +76,9 @@ interface PipelineCandidate {
   mechanism?: string;
   explanation?: string;
   admet: AdmetSummary;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
 }
 
 interface PipelineResponse {
@@ -83,6 +89,16 @@ interface PipelineResponse {
   docking_results: DockingResult[];
   candidates: PipelineCandidate[];
   report: string;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatKd(kdNm: number): string {
+  if (kdNm < 0.001) return `${(kdNm * 1e6).toFixed(1)} fM`;
+  if (kdNm < 1) return `${(kdNm * 1e3).toFixed(1)} pM`;
+  if (kdNm < 1000) return `${kdNm.toFixed(1)} nM`;
+  if (kdNm < 1e6) return `${(kdNm / 1e3).toFixed(1)} \u00B5M`;
+  return `${(kdNm / 1e6).toFixed(1)} mM`;
 }
 
 // ─── SSE Reducer ────────────────────────────────────────────────────────────
@@ -106,9 +122,9 @@ type PipelineAction =
   | { type: 'RESTORE'; state: PipelineState };
 
 const initialState: PipelineState = {
-  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
-  stepData: [null, null, null, null, null, null],
-  stepMessages: [null, null, null, null, null, null],
+  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
+  stepData: [null, null, null, null, null, null, null],
+  stepMessages: [null, null, null, null, null, null, null],
   error: null,
   isDone: false,
 };
@@ -154,14 +170,15 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'ADMET', 'Report'];
-const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'activity', 'file-text'];
+const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'ADMET', 'Novelty', 'Report'];
+const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'activity', 'search', 'file-text'];
 const STEP_SUB_MESSAGES: string[][] = [
   ['Querying Open Targets database...', 'Ranking disease-gene associations...'],
   ['Searching RCSB PDB database...', 'Downloading protein structures...', 'Trying AlphaFold fallback...'],
   ['Querying ChEMBL database...', 'Finding approved compounds...', 'Extracting molecular data...'],
   ['Preparing protein-ligand pairs...', 'Running DiffDock simulations...', 'Scoring binding poses...', 'Computing confidence scores...'],
   ['Computing molecular descriptors...', 'Evaluating absorption & distribution...', 'Scoring metabolism & excretion...', 'Assessing toxicity & drug-likeness...'],
+  ['Checking clinical databases...', 'Searching FDA approvals...', 'Analyzing trial history...'],
   ['Analyzing top docking results...', 'Generating AI-powered report...', 'Formatting recommendations...'],
 ];
 
@@ -307,12 +324,14 @@ function PipelineContent() {
   const [pdbText, setPdbText] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [selectedDocking, setSelectedDocking] = useState(0);
+  const [dockingTransitioning, setDockingTransitioning] = useState(false);
   const [subMsgIndex, setSubMsgIndex] = useState(0);
 
   const hasStarted = useRef(false);
   const startTimeRef = useRef(Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasStoredResults = useRef(false);
+  const userScrolledUp = useRef(false);
 
   // Cache key identifying this exact search
   const cacheKey = `${disease}|${mode}|${targetSymbol}|${drugName}|${maxTargets}|${maxCandidates}`;
@@ -335,6 +354,43 @@ function PipelineContent() {
   useEffect(() => {
     if ((state.isDone || state.error) && timerRef.current) clearInterval(timerRef.current);
   }, [state.isDone, state.error]);
+
+  // Auto-scroll: continuously pin to bottom while pipeline is running
+  useEffect(() => {
+    if (state.isDone || state.error) return;
+
+    let rafId: number;
+    let lastHeight = 0;
+
+    // Detect manual scroll-up to pause auto-scroll
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) userScrolledUp.current = true;
+    };
+    const handleTouchMove = () => { userScrolledUp.current = true; };
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+
+    const tick = () => {
+      const docHeight = document.documentElement.scrollHeight;
+      if (!userScrolledUp.current && docHeight !== lastHeight) {
+        lastHeight = docHeight;
+        window.scrollTo({ top: docHeight, behavior: 'smooth' });
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [state.isDone, state.error]);
+
+  // Re-engage auto-scroll when a new step starts
+  useEffect(() => {
+    userScrolledUp.current = false;
+  }, [state.stepStatuses]);
 
   // Cycle sub-messages for running steps
   useEffect(() => {
@@ -407,16 +463,16 @@ function PipelineContent() {
   // Reconstruct full result from accumulated step data
   const result = useMemo<PipelineResponse | null>(() => {
     if (!state.isDone) return null;
-    const [s1, s2, s3, s4, s5, s6] = state.stepData;
-    if (!s1 || !s2 || !s3 || !s4 || !s5 || !s6) return null;
+    const [s1, s2, s3, s4, s5, _s6, s7] = state.stepData;
+    if (!s1 || !s2 || !s3 || !s4 || !s5 || !s7) return null;
     return {
       disease: s1.disease,
       targets: s1.targets,
       structures: s2.structures,
       drugs: s3.drugs,
-      docking_results: s6.docking_results || s4.docking_results,
-      candidates: s6.candidates || [],
-      report: s6.report,
+      docking_results: s7.docking_results || s4.docking_results,
+      candidates: s7.candidates || [],
+      report: s7.report,
     };
   }, [state.isDone, state.stepData]);
 
@@ -472,7 +528,8 @@ function PipelineContent() {
           case 2: return `Found ${d.drugs.length} drug candidate${d.drugs.length !== 1 ? 's' : ''}`;
           case 3: return `Docked ${d.docking_results.length} compound${d.docking_results.length !== 1 ? 's' : ''} successfully`;
           case 4: return `ADMET analysis complete`;
-          case 5: return 'Report generated';
+          case 5: return 'Novelty check complete';
+          case 6: return 'Report generated';
         }
       }
       return 'Complete';
@@ -484,9 +541,9 @@ function PipelineContent() {
   const targetsData: TargetHit[] = state.stepData[0]?.targets || [];
   const structuresData: Structure[] = state.stepData[1]?.structures || [];
   const drugsData: Drug[] = state.stepData[2]?.drugs || [];
-  const admetData: AdmetSummary[] = state.stepData[4]?.admet_results || state.stepData[5]?.admet_results || [];
-  const dockingData: DockingResult[] = (state.stepData[5]?.docking_results || state.stepData[3]?.docking_results || []);
-  const pipelineCandidates: PipelineCandidate[] = state.stepData[5]?.candidates || [];
+  const admetData: AdmetSummary[] = state.stepData[4]?.admet_results || state.stepData[6]?.admet_results || [];
+  const dockingData: DockingResult[] = (state.stepData[6]?.docking_results || state.stepData[3]?.docking_results || []);
+  const pipelineCandidates: PipelineCandidate[] = state.stepData[6]?.candidates || [];
 
   // Build candidates from progressive data
   const drugMap = useMemo(() => {
@@ -643,7 +700,7 @@ function PipelineContent() {
 
         {/* Stepper Row */}
         <motion.div
-          className="max-w-3xl mx-auto px-8 mt-4 mb-10"
+          className="w-full px-8 mt-4 mb-10 flex justify-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.2 }}
@@ -725,13 +782,12 @@ function PipelineContent() {
                       <MolViewer
                         proteinPdb={pdbText}
                         proteinStyle="cartoon"
-                        autoRotate
                       />
                     </div>
                     {structuresData.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-3">
-                        {structuresData.map((s) => (
-                          <span key={s.pdb_id} className="text-xs font-light text-white/45 tracking-wide">
+                        {structuresData.map((s, i) => (
+                          <span key={`${s.symbol}-${s.pdb_id}-${i}`} className="text-xs font-light text-white/45 tracking-wide">
                             {s.symbol}: {s.pdb_id}
                             {s.resolution && ` (${s.resolution}\u00C5)`}
                             {` \u2022 ${s.source}`}
@@ -787,28 +843,54 @@ function PipelineContent() {
                         <span className="text-xs font-light text-white/45 tracking-wide uppercase">
                           Viewing:
                         </span>
-                        {dockingViewData.slice(0, 8).map((d, i) => (
-                          <button
-                            key={i}
-                            onClick={() => setSelectedDocking(i)}
-                            className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 ${
-                              selectedDocking === i
-                                ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
-                                : 'border border-white/[0.05] text-white/50 hover:text-white/50'
-                            }`}
-                          >
-                            {d.drug_name}
-                          </button>
-                        ))}
+                        {dockingViewData.slice(0, 8).map((d, i) => {
+                          const dr = dockingData[i];
+                          const kdNm = dr?.predicted_kd_nm;
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                if (i === selectedDocking) return;
+                                setDockingTransitioning(true);
+                                setTimeout(() => {
+                                  setSelectedDocking(i);
+                                  setDockingTransitioning(false);
+                                }, 220);
+                              }}
+                              className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 flex items-center gap-1.5 ${
+                                selectedDocking === i
+                                  ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
+                                  : 'border border-white/[0.05] text-white/50 hover:text-white/50'
+                              }`}
+                            >
+                              {d.drug_name}
+                              {kdNm != null && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/[0.12] text-purple-400/80 text-[10px]">
+                                  {formatKd(kdNm)}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
-                    <div className="w-full aspect-[3/2]">
+                    <div className="w-full aspect-[3/2] relative">
                       <MolViewer
-                        proteinPdb={pdbText}
                         ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
-                        proteinStyle="surface"
-                        autoRotate
                       />
+                      <AnimatePresence>
+                        {dockingTransitioning && (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute inset-0 rounded-xl bg-black/60 flex items-center justify-center"
+                          >
+                            <div className="w-5 h-5 rounded-full border border-white/10 border-t-white/50 animate-spin" />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </motion.div>
                 )}
@@ -893,9 +975,14 @@ function PipelineContent() {
               </StepCard>
             )}
 
-            {/* Step 6: Report */}
+            {/* Step 6: Novelty */}
             {stepStatus(5) !== 'pending' && (
-              <StepCard key="step-6" label={STEP_LABELS[5]} index={5} status={stepStatus(5)} message={stepMessage(5)}>
+              <StepCard key="step-6" label={STEP_LABELS[5]} index={5} status={stepStatus(5)} message={stepMessage(5)} />
+            )}
+
+            {/* Step 7: Report */}
+            {stepStatus(6) !== 'pending' && (
+              <StepCard key="step-7" label={STEP_LABELS[6]} index={6} status={stepStatus(6)} message={stepMessage(6)}>
                 {state.isDone && result && (
                   <motion.div
                     initial={{ opacity: 0 }}

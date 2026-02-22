@@ -17,6 +17,9 @@ async def load_models():
     from services.admet import load_tox21_model
     load_tox21_model()
 
+    from services.xgb_affinity import load_xgb_model
+    load_xgb_model()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

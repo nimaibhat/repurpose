@@ -357,9 +357,8 @@ export default function ResearchPage() {
   const [focusMode, setFocusMode] = useState<FocusMode>('explore');
   const [proteinTarget, setProteinTarget] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [admetStrict, setAdmetStrict] = useState(true);
   const [maxTargets, setMaxTargets] = useState(5);
-  const [maxCandidates, setMaxCandidates] = useState(0);
+  const [maxCandidates, setMaxCandidates] = useState(25);
 
   const [status, setStatus] = useState<Status>('idle');
   const [results, setResults] = useState<PipelineResult | null>(null);
@@ -420,9 +419,6 @@ export default function ResearchPage() {
       {/* Navbar */}
       <nav className="relative z-10 flex items-center justify-between px-8 py-5">
         <span className="text-[0.8rem] font-extralight tracking-[0.35em] uppercase text-white/60">repurpose</span>
-        <button className="text-[0.65rem] font-extralight tracking-[0.2em] uppercase text-white/30 hover:text-white/60 transition-colors duration-300">
-          How it works
-        </button>
       </nav>
 
       {/* Content */}
@@ -504,21 +500,6 @@ export default function ResearchPage() {
                     {advancedOpen && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }} className="overflow-hidden">
                         <div className="mt-4 space-y-6 pl-1">
-
-                          {/* ADMET Strictness */}
-                          <div>
-                            <p className="text-[0.6rem] font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">ADMET Strictness</p>
-                            <div className="flex gap-2">
-                              {(['Strict', 'Relaxed'] as const).map((opt) => {
-                                const isActive = opt === 'Strict' ? admetStrict : !admetStrict;
-                                return (
-                                  <button key={opt} className={`px-4 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 cursor-pointer ${isActive ? 'border-white/15 bg-white/[0.06] text-white/70' : 'border-white/[0.05] bg-transparent text-white/25 hover:text-white/40 hover:border-white/[0.1]'}`} onClick={() => setAdmetStrict(opt === 'Strict')}>
-                                    {opt}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
 
                           {/* Max Targets */}
                           <div>

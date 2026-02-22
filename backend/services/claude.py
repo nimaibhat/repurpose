@@ -10,17 +10,25 @@ SYSTEM_PROMPT = (
     "repurposing report for researchers. Be scientifically precise but write in clear "
     "language. For each drug candidate, explain the biological mechanism connecting the "
     "drug to the target. Reference specific pathways and protein functions.\n\n"
-    "IMPORTANT: You are given BOTH molecular docking scores (binding confidence, 0-1) "
-    "AND ADMET safety profiles (absorption, distribution, metabolism, excretion, toxicity, "
-    "drug-likeness). Your final ranking MUST weigh both binding strength and safety.\n\n"
-    "- Prioritize compounds with BOTH high binding confidence AND good safety profiles.\n"
+    "IMPORTANT: You are given molecular docking scores (binding confidence, 0-1), "
+    "ADMET safety profiles (absorption, distribution, metabolism, excretion, toxicity, "
+    "drug-likeness), and when available, predicted binding affinity (pKd and Kd in nM).\n\n"
+    "- Prioritize compounds with high binding confidence, strong predicted affinity, "
+    "AND good safety profiles.\n"
+    "- When binding affinity is available, discuss it: lower Kd (nM) means tighter binding. "
+    "pKd > 7 is strong, 5-7 moderate, < 5 weak.\n"
     "- For compounds that bind well but have safety concerns, explicitly call this out, e.g.: "
-    "\"Compound X shows strong binding (0.87) but is flagged for toxicity concern — monitor "
-    "for adverse effects if repurposed.\"\n"
+    "\"Compound X shows strong binding (0.87) and tight affinity (Kd=45 nM) but is flagged "
+    "for toxicity concern — monitor for adverse effects if repurposed.\"\n"
     "- For compounds that are very safe but bind weakly, note this too, e.g.: "
     "\"Compound Y has an excellent safety profile but low binding confidence (0.34) — "
     "unlikely to be effective.\"\n"
-    "- The final ranking should weight both binding AND safety, not just one.\n\n"
+    "- The final ranking should weight binding, affinity, AND safety together.\n\n"
+    "When novelty status is provided for candidates:\n"
+    "- 'novel' = not known to be used or trialed for this disease — highlight these as genuinely new repurposing opportunities\n"
+    "- 'in_trials' = currently in clinical trials for this disease — note existing research\n"
+    "- 'approved' = already approved for this disease — note this is not a novel repurposing candidate\n"
+    "Prioritize novel candidates in your recommendations when binding and safety are comparable.\n\n"
     "Include appropriate caveats that this is computational prediction requiring "
     "experimental validation."
 )
@@ -42,10 +50,28 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
         admet_pf = admet.get("pass_fail", "N/A")
         admet_flags = ", ".join(admet.get("flags", [])) or "None"
         combined = r.get("combined_score", "N/A")
+        pkd = r.get("predicted_pkd")
+        kd_nm = r.get("predicted_kd_nm")
+        affinity_score = r.get("affinity_score")
+
+        affinity_line = ""
+        if pkd is not None:
+            affinity_line = f"   - Predicted affinity: pKd={pkd}, Kd={kd_nm} nM (score={affinity_score})\n"
+
+        novelty_status = r.get("novelty_status")
+        novelty_detail = r.get("novelty_detail", "")
+        novelty_line = ""
+        if novelty_status and novelty_status != "unknown":
+            novelty_line = f"   - Novelty: {novelty_status} — {novelty_detail}\n"
+
+        has_affinity = affinity_score is not None
+        score_formula = "binding 40% + affinity 15% + safety 45%" if has_affinity else "binding 55% + safety 45%"
 
         drugs_section += (
             f"{i}. **{name}** (SMILES: {r['smiles'][:60]}...)\n"
             f"   - Binding confidence: {score}\n"
+            f"{affinity_line}"
+            f"{novelty_line}"
             f"   - Mechanism: {mech}\n"
             f"   - Clinical stage: {phase_str}\n"
             f"   - ADMET overall: {admet_overall} ({admet_pf})\n"
@@ -56,7 +82,7 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
             f"Excretion: {admet.get('excretion', 'N/A')}, "
             f"Toxicity: {admet.get('toxicity', 'N/A')}, "
             f"Drug-likeness: {admet.get('drug_likeness', 'N/A')}\n"
-            f"   - Combined score (binding 60% + safety 40%): {combined}\n\n"
+            f"   - Combined score ({score_formula}): {combined}\n\n"
         )
 
     return (
@@ -64,11 +90,11 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
         f"## Target Protein\n"
         f"- Symbol: {target['symbol']}\n"
         f"- Name: {target['name']}\n\n"
-        f"## Candidates (ranked by combined binding + safety score)\n\n"
+        f"## Candidates (ranked by combined binding + affinity + safety score)\n\n"
         f"{drugs_section}"
         f"For each candidate (up to 5), provide:\n"
         f"1. A 2-3 sentence mechanistic explanation of why this drug might work\n"
-        f"2. Assessment of BOTH the binding confidence AND safety profile together\n"
+        f"2. Assessment of binding confidence, predicted affinity (if available), AND safety profile\n"
         f"3. Any known research or clinical trials related to this repurposing\n"
         f"4. A risk/benefit summary that accounts for ADMET flags\n\n"
         f"Specifically:\n"
