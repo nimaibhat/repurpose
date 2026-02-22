@@ -27,7 +27,7 @@ _model_config: dict | None = None
 # ─── Constants ───────────────────────────────────────────────────────────────
 
 # One-hot encoding for common elements (top 10 in PDBbind)
-ELEMENT_LIST = [6, 7, 8, 16, 15, 9, 17, 35, 53, 5]  # C,N,O,S,P,F,Cl,Br,I,B
+ELEMENT_LIST = [6, 7, 8, 16, 15, 9, 17, 35, 53, 5, 30]  # C,N,O,S,P,F,Cl,Br,I,B,Zn
 
 # 20 standard amino acids
 AA_LIST = [
@@ -44,7 +44,7 @@ HYBRIDIZATION_LIST = ["SP", "SP2", "SP3", "SP3D", "SP3D2"]
 RBF_CENTERS = np.linspace(0.0, 10.0, 21)
 RBF_GAMMA = 5.0
 
-# Node feature dimensionality: 10 (element) + 5 (hybrid) + 1 (charge) + 1 (arom) + 1 (ring) + 1 (heavy_neighbors) + 1 (is_protein) + 20 (AA) + 7 padding = 47
+# 11 elem + 5 hybrid + 1 charge + 1 arom + 1 ring + 1 neighbors + 1 protein + 20 AA + 6 pad = 47
 NODE_DIM = 47
 EDGE_DIM = 24  # 21 (RBF distance) + 3 (edge type one-hot: intra-lig, intra-prot, inter)
 
@@ -130,40 +130,22 @@ def _atom_features(
     feat = np.zeros(NODE_DIM, dtype=np.float32)
     idx = 0
 
-    # Element one-hot (10)
     if atomic_num in ELEMENT_LIST:
         feat[ELEMENT_LIST.index(atomic_num)] = 1.0
-    idx += 10
+    idx += len(ELEMENT_LIST)
 
-    # Hybridization one-hot (5)
     if hybridization and hybridization in HYBRIDIZATION_LIST:
         feat[idx + HYBRIDIZATION_LIST.index(hybridization)] = 1.0
-    idx += 5
+    idx += len(HYBRIDIZATION_LIST)
 
-    # Formal charge (1)
-    feat[idx] = float(formal_charge)
-    idx += 1
+    feat[idx] = float(formal_charge);            idx += 1
+    feat[idx] = 1.0 if is_aromatic else 0.0;     idx += 1
+    feat[idx] = 1.0 if is_in_ring else 0.0;      idx += 1
+    feat[idx] = float(num_heavy_neighbors);       idx += 1
+    feat[idx] = 1.0 if is_protein else 0.0;      idx += 1
 
-    # Aromaticity (1)
-    feat[idx] = 1.0 if is_aromatic else 0.0
-    idx += 1
-
-    # Ring membership (1)
-    feat[idx] = 1.0 if is_in_ring else 0.0
-    idx += 1
-
-    # Num heavy neighbors (1)
-    feat[idx] = float(num_heavy_neighbors)
-    idx += 1
-
-    # Is protein flag (1)
-    feat[idx] = 1.0 if is_protein else 0.0
-    idx += 1
-
-    # Residue type one-hot (20)
     if residue_name and residue_name in AA_TO_IDX:
         feat[idx + AA_TO_IDX[residue_name]] = 1.0
-    idx += 20
 
     return feat
 
@@ -252,7 +234,7 @@ def featurize_complex(pdb_text: str, ligand_sdf: str) -> object | None:
         # Protein node features
         prot_features = []
         for atom in pocket_atoms:
-            elem = atom.element.strip()
+            elem = atom.element.strip().capitalize()
             atomic_num = Chem.GetPeriodicTable().GetAtomicNumber(elem) if elem else 6
             residue = atom.get_parent()
             res_name = residue.get_resname() if residue else None
