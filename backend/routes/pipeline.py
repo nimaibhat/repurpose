@@ -17,6 +17,7 @@ from services.nvidia_nim import run_diffdock_batch
 from services.claude import generate_report
 from services.admet import predict_admet_batch, build_admet_summary
 from services.gnn_affinity import predict_binding_affinity
+from services.novelty import check_novelty_batch
 from config import get_settings
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -227,7 +228,30 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
             )
     all_docking_results.sort(key=lambda r: r["combined_score"], reverse=True)
 
-    # Step 6: Generate AI report
+    # Step 6: Novelty check
+    if settings.anthropic_api_key and all_docking_results:
+        try:
+            novelty_candidates = [
+                {"drug_name": dr.get("drug_name", "Unknown"), "mechanism": dr.get("mechanism")}
+                for dr in all_docking_results
+            ]
+            novelty_results = await check_novelty_batch(
+                settings.anthropic_api_key, disease_info["name"], novelty_candidates
+            )
+            for dr, nr in zip(all_docking_results, novelty_results):
+                dr["novelty_status"] = nr["novelty_status"]
+                dr["novelty_detail"] = nr["novelty_detail"]
+        except Exception as e:
+            print(f"Warning: Novelty check failed: {e}")
+            for dr in all_docking_results:
+                dr["novelty_status"] = "unknown"
+                dr["novelty_detail"] = ""
+    else:
+        for dr in all_docking_results:
+            dr["novelty_status"] = "unknown"
+            dr["novelty_detail"] = ""
+
+    # Step 7: Generate AI report
     report_text = (
         f"# Pipeline for {disease_info['name']}\n\n"
         f"Target symbols: {', '.join(target_symbols)}\n\n"
@@ -259,6 +283,8 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
                     "predicted_pkd": dr.get("predicted_pkd"),
                     "predicted_kd_nm": dr.get("predicted_kd_nm"),
                     "affinity_score": dr.get("affinity_score"),
+                    "novelty_status": dr.get("novelty_status"),
+                    "novelty_detail": dr.get("novelty_detail"),
                 })
 
             report_result = generate_report(
@@ -302,6 +328,8 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
             "predicted_pkd": dr.get("predicted_pkd"),
             "predicted_kd_nm": dr.get("predicted_kd_nm"),
             "affinity_score": dr.get("affinity_score"),
+            "novelty_status": dr.get("novelty_status"),
+            "novelty_detail": dr.get("novelty_detail"),
         })
 
     return PipelineResult(
@@ -510,8 +538,45 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         "data": {"admet_results": admet_results},
     })
 
-    # Step 6: Report
+    # Step 6: Novelty
     yield _sse_event("step", {"step": 6, "status": "running",
+        "message": "Checking drug novelty for this disease...",
+    })
+    if settings.anthropic_api_key and all_docking_results:
+        try:
+            novelty_candidates = [
+                {"drug_name": dr.get("drug_name", "Unknown"), "mechanism": dr.get("mechanism")}
+                for dr in all_docking_results
+            ]
+            novelty_results = await check_novelty_batch(
+                settings.anthropic_api_key, disease_info["name"], novelty_candidates
+            )
+            for dr, nr in zip(all_docking_results, novelty_results):
+                dr["novelty_status"] = nr["novelty_status"]
+                dr["novelty_detail"] = nr["novelty_detail"]
+            n_novel = sum(1 for nr in novelty_results if nr["novelty_status"] == "novel")
+            n_known = sum(1 for nr in novelty_results if nr["novelty_status"] in ("approved", "in_trials"))
+            yield _sse_event("step", {"step": 6, "status": "complete",
+                "message": f"{n_novel} novel, {n_known} known candidates identified",
+            })
+        except Exception as e:
+            print(f"Warning: Novelty check failed: {e}")
+            for dr in all_docking_results:
+                dr["novelty_status"] = "unknown"
+                dr["novelty_detail"] = ""
+            yield _sse_event("step", {"step": 6, "status": "complete",
+                "message": "Novelty check skipped",
+            })
+    else:
+        for dr in all_docking_results:
+            dr["novelty_status"] = "unknown"
+            dr["novelty_detail"] = ""
+        yield _sse_event("step", {"step": 6, "status": "complete",
+            "message": "Novelty check skipped (no API key)",
+        })
+
+    # Step 7: Report
+    yield _sse_event("step", {"step": 7, "status": "running",
         "message": "Generating research report with safety analysis...",
     })
     report_text = (
@@ -544,6 +609,8 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
                     "predicted_pkd": dr.get("predicted_pkd"),
                     "predicted_kd_nm": dr.get("predicted_kd_nm"),
                     "affinity_score": dr.get("affinity_score"),
+                    "novelty_status": dr.get("novelty_status"),
+                    "novelty_detail": dr.get("novelty_detail"),
                 })
 
             report_result = generate_report(
@@ -587,9 +654,11 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
             "predicted_pkd": dr.get("predicted_pkd"),
             "predicted_kd_nm": dr.get("predicted_kd_nm"),
             "affinity_score": dr.get("affinity_score"),
+            "novelty_status": dr.get("novelty_status"),
+            "novelty_detail": dr.get("novelty_detail"),
         })
 
-    yield _sse_event("done", {"step": 6, "status": "complete", "data": {
+    yield _sse_event("done", {"step": 7, "status": "complete", "data": {
         "report": report_text,
         "candidates": candidates,
         "docking_results": all_docking_results,

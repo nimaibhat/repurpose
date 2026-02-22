@@ -122,9 +122,9 @@ type PipelineAction =
   | { type: 'RESTORE'; state: PipelineState };
 
 const initialState: PipelineState = {
-  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
-  stepData: [null, null, null, null, null, null],
-  stepMessages: [null, null, null, null, null, null],
+  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
+  stepData: [null, null, null, null, null, null, null],
+  stepMessages: [null, null, null, null, null, null, null],
   error: null,
   isDone: false,
 };
@@ -170,14 +170,15 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'ADMET', 'Report'];
-const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'activity', 'file-text'];
+const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'ADMET', 'Novelty', 'Report'];
+const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'activity', 'search', 'file-text'];
 const STEP_SUB_MESSAGES: string[][] = [
   ['Querying Open Targets database...', 'Ranking disease-gene associations...'],
   ['Searching RCSB PDB database...', 'Downloading protein structures...', 'Trying AlphaFold fallback...'],
   ['Querying ChEMBL database...', 'Finding approved compounds...', 'Extracting molecular data...'],
   ['Preparing protein-ligand pairs...', 'Running DiffDock simulations...', 'Scoring binding poses...', 'Computing confidence scores...'],
   ['Computing molecular descriptors...', 'Evaluating absorption & distribution...', 'Scoring metabolism & excretion...', 'Assessing toxicity & drug-likeness...'],
+  ['Checking clinical databases...', 'Searching FDA approvals...', 'Analyzing trial history...'],
   ['Analyzing top docking results...', 'Generating AI-powered report...', 'Formatting recommendations...'],
 ];
 
@@ -330,6 +331,7 @@ function PipelineContent() {
   const startTimeRef = useRef(Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasStoredResults = useRef(false);
+  const userScrolledUp = useRef(false);
 
   // Cache key identifying this exact search
   const cacheKey = `${disease}|${mode}|${targetSymbol}|${drugName}|${maxTargets}|${maxCandidates}`;
@@ -352,6 +354,43 @@ function PipelineContent() {
   useEffect(() => {
     if ((state.isDone || state.error) && timerRef.current) clearInterval(timerRef.current);
   }, [state.isDone, state.error]);
+
+  // Auto-scroll: continuously pin to bottom while pipeline is running
+  useEffect(() => {
+    if (state.isDone || state.error) return;
+
+    let rafId: number;
+    let lastHeight = 0;
+
+    // Detect manual scroll-up to pause auto-scroll
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) userScrolledUp.current = true;
+    };
+    const handleTouchMove = () => { userScrolledUp.current = true; };
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+
+    const tick = () => {
+      const docHeight = document.documentElement.scrollHeight;
+      if (!userScrolledUp.current && docHeight !== lastHeight) {
+        lastHeight = docHeight;
+        window.scrollTo({ top: docHeight, behavior: 'smooth' });
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [state.isDone, state.error]);
+
+  // Re-engage auto-scroll when a new step starts
+  useEffect(() => {
+    userScrolledUp.current = false;
+  }, [state.stepStatuses]);
 
   // Cycle sub-messages for running steps
   useEffect(() => {
@@ -424,16 +463,16 @@ function PipelineContent() {
   // Reconstruct full result from accumulated step data
   const result = useMemo<PipelineResponse | null>(() => {
     if (!state.isDone) return null;
-    const [s1, s2, s3, s4, s5, s6] = state.stepData;
-    if (!s1 || !s2 || !s3 || !s4 || !s5 || !s6) return null;
+    const [s1, s2, s3, s4, s5, _s6, s7] = state.stepData;
+    if (!s1 || !s2 || !s3 || !s4 || !s5 || !s7) return null;
     return {
       disease: s1.disease,
       targets: s1.targets,
       structures: s2.structures,
       drugs: s3.drugs,
-      docking_results: s6.docking_results || s4.docking_results,
-      candidates: s6.candidates || [],
-      report: s6.report,
+      docking_results: s7.docking_results || s4.docking_results,
+      candidates: s7.candidates || [],
+      report: s7.report,
     };
   }, [state.isDone, state.stepData]);
 
@@ -489,7 +528,8 @@ function PipelineContent() {
           case 2: return `Found ${d.drugs.length} drug candidate${d.drugs.length !== 1 ? 's' : ''}`;
           case 3: return `Docked ${d.docking_results.length} compound${d.docking_results.length !== 1 ? 's' : ''} successfully`;
           case 4: return `ADMET analysis complete`;
-          case 5: return 'Report generated';
+          case 5: return 'Novelty check complete';
+          case 6: return 'Report generated';
         }
       }
       return 'Complete';
@@ -501,9 +541,9 @@ function PipelineContent() {
   const targetsData: TargetHit[] = state.stepData[0]?.targets || [];
   const structuresData: Structure[] = state.stepData[1]?.structures || [];
   const drugsData: Drug[] = state.stepData[2]?.drugs || [];
-  const admetData: AdmetSummary[] = state.stepData[4]?.admet_results || state.stepData[5]?.admet_results || [];
-  const dockingData: DockingResult[] = (state.stepData[5]?.docking_results || state.stepData[3]?.docking_results || []);
-  const pipelineCandidates: PipelineCandidate[] = state.stepData[5]?.candidates || [];
+  const admetData: AdmetSummary[] = state.stepData[4]?.admet_results || state.stepData[6]?.admet_results || [];
+  const dockingData: DockingResult[] = (state.stepData[6]?.docking_results || state.stepData[3]?.docking_results || []);
+  const pipelineCandidates: PipelineCandidate[] = state.stepData[6]?.candidates || [];
 
   // Build candidates from progressive data
   const drugMap = useMemo(() => {
@@ -742,7 +782,6 @@ function PipelineContent() {
                       <MolViewer
                         proteinPdb={pdbText}
                         proteinStyle="cartoon"
-                        autoRotate
                       />
                     </div>
                     {structuresData.length > 0 && (
@@ -838,7 +877,6 @@ function PipelineContent() {
                     <div className="w-full aspect-[3/2] relative">
                       <MolViewer
                         ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
-                        autoRotate
                       />
                       <AnimatePresence>
                         {dockingTransitioning && (
@@ -937,9 +975,14 @@ function PipelineContent() {
               </StepCard>
             )}
 
-            {/* Step 6: Report */}
+            {/* Step 6: Novelty */}
             {stepStatus(5) !== 'pending' && (
-              <StepCard key="step-6" label={STEP_LABELS[5]} index={5} status={stepStatus(5)} message={stepMessage(5)}>
+              <StepCard key="step-6" label={STEP_LABELS[5]} index={5} status={stepStatus(5)} message={stepMessage(5)} />
+            )}
+
+            {/* Step 7: Report */}
+            {stepStatus(6) !== 'pending' && (
+              <StepCard key="step-7" label={STEP_LABELS[6]} index={6} status={stepStatus(6)} message={stepMessage(6)}>
                 {state.isDone && result && (
                   <motion.div
                     initial={{ opacity: 0 }}

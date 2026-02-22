@@ -24,6 +24,11 @@ SYSTEM_PROMPT = (
     "\"Compound Y has an excellent safety profile but low binding confidence (0.34) — "
     "unlikely to be effective.\"\n"
     "- The final ranking should weight binding, affinity, AND safety together.\n\n"
+    "When novelty status is provided for candidates:\n"
+    "- 'novel' = not known to be used or trialed for this disease — highlight these as genuinely new repurposing opportunities\n"
+    "- 'in_trials' = currently in clinical trials for this disease — note existing research\n"
+    "- 'approved' = already approved for this disease — note this is not a novel repurposing candidate\n"
+    "Prioritize novel candidates in your recommendations when binding and safety are comparable.\n\n"
     "Include appropriate caveats that this is computational prediction requiring "
     "experimental validation."
 )
@@ -53,6 +58,12 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
         if pkd is not None:
             affinity_line = f"   - GNN predicted affinity: pKd={pkd}, Kd={kd_nm} nM (score={affinity_score})\n"
 
+        novelty_status = r.get("novelty_status")
+        novelty_detail = r.get("novelty_detail", "")
+        novelty_line = ""
+        if novelty_status and novelty_status != "unknown":
+            novelty_line = f"   - Novelty: {novelty_status} — {novelty_detail}\n"
+
         has_affinity = affinity_score is not None
         score_formula = "binding 35% + affinity 30% + safety 35%" if has_affinity else "binding 60% + safety 40%"
 
@@ -60,6 +71,7 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
             f"{i}. **{name}** (SMILES: {r['smiles'][:60]}...)\n"
             f"   - Binding confidence: {score}\n"
             f"{affinity_line}"
+            f"{novelty_line}"
             f"   - Mechanism: {mech}\n"
             f"   - Clinical stage: {phase_str}\n"
             f"   - ADMET overall: {admet_overall} ({admet_pf})\n"

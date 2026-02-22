@@ -42,6 +42,8 @@ interface Candidate {
   predicted_pkd?: number | null;
   predicted_kd_nm?: number | null;
   affinity_score?: number | null;
+  novelty_status?: string;
+  novelty_detail?: string;
 }
 
 interface DockingEntry {
@@ -59,6 +61,8 @@ interface DockingResultFull {
   predicted_pkd?: number | null;
   predicted_kd_nm?: number | null;
   affinity_score?: number | null;
+  novelty_status?: string;
+  novelty_detail?: string;
 }
 
 interface ResultsData {
@@ -72,7 +76,7 @@ interface ResultsData {
   all_docking_results?: DockingResultFull[];
 }
 
-type SortMode = 'combined' | 'binding' | 'affinity' | 'safety' | 'alphabetical' | 'phase';
+type SortMode = 'combined' | 'binding' | 'affinity' | 'safety' | 'novelty' | 'alphabetical' | 'phase';
 type DetailTab = 'explanation' | 'safety' | 'mechanism' | 'report';
 type ViewMode = 'list' | 'heatmap';
 
@@ -139,6 +143,12 @@ function sortCandidates(candidates: Candidate[], mode: SortMode): Candidate[] {
       return sorted.sort((a, b) => (b.affinity_score ?? 0) - (a.affinity_score ?? 0));
     case 'safety':
       return sorted.sort((a, b) => (b.admet?.overall_score ?? 0) - (a.admet?.overall_score ?? 0));
+    case 'novelty': {
+      const noveltyOrder: Record<string, number> = { novel: 0, in_trials: 1, approved: 2, unknown: 3 };
+      return sorted.sort((a, b) =>
+        (noveltyOrder[a.novelty_status || 'unknown'] ?? 3) - (noveltyOrder[b.novelty_status || 'unknown'] ?? 3)
+      );
+    }
     case 'alphabetical':
       return sorted.sort((a, b) => (a.drug_name || '').localeCompare(b.drug_name || ''));
     case 'phase':
@@ -552,23 +562,24 @@ function ResultsContent() {
             transition={{ duration: 0.6, ease }}
           >
             {/* Header */}
-            <div className="px-5 py-4 border-b border-white/[0.04] shrink-0">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2.5">
-                  <h2 className="text-base font-light text-white/70">Drug Candidates</h2>
-                  <span className="px-3 py-1 rounded-full bg-white/[0.05] text-xs font-light text-white/55 tabular-nums">
-                    {data.candidates.length} results
+            <div className="px-5 py-4 border-b border-white/[0.04] shrink-0 space-y-3">
+              {/* Title row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-baseline gap-2">
+                  <h2 className="text-base font-light text-white/70">Candidates</h2>
+                  <span className="text-xs font-light text-white/35 tabular-nums">
+                    {data.candidates.length}
                   </span>
                 </div>
 
                 {/* View toggle */}
-                <div className="flex gap-1 p-0.5 rounded-md bg-white/[0.02] border border-white/[0.05]">
+                <div className="flex gap-0.5 p-0.5 rounded-md bg-white/[0.02] border border-white/[0.05]">
                   {(['list', 'heatmap'] as ViewMode[]).map((mode) => (
                     <button
                       key={mode}
                       onClick={() => setViewMode(mode)}
-                      className={`relative px-3.5 py-1.5 rounded text-xs font-light capitalize tracking-wide transition-all duration-300 ${
-                        viewMode === mode ? 'text-white/70' : 'text-white/45 hover:text-white/60'
+                      className={`relative px-2.5 py-1 rounded text-[11px] font-light capitalize tracking-wide transition-all duration-300 ${
+                        viewMode === mode ? 'text-white/70' : 'text-white/40 hover:text-white/55'
                       }`}
                     >
                       {viewMode === mode && (
@@ -584,30 +595,33 @@ function ResultsContent() {
                 </div>
               </div>
 
-              {/* Sort */}
+              {/* Sort row */}
               {viewMode === 'list' && (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-light text-white/60 tracking-wide uppercase">Sort:</span>
-                  {([
-                    { mode: 'combined' as SortMode, label: 'Combined' },
-                    { mode: 'binding' as SortMode, label: 'Binding' },
-                    { mode: 'affinity' as SortMode, label: 'Affinity' },
-                    { mode: 'safety' as SortMode, label: 'Safety' },
-                    { mode: 'phase' as SortMode, label: 'Phase' },
-                    { mode: 'alphabetical' as SortMode, label: 'A-Z' },
-                  ]).map(({ mode, label }) => (
-                    <button
-                      key={mode}
-                      onClick={() => { setSortMode(mode); setSelectedIdx(0); }}
-                      className={`px-2.5 py-1.5 rounded-md text-xs font-light transition-all duration-300 ${
-                        sortMode === mode
-                          ? 'bg-white/[0.06] text-white/60 border border-white/[0.1]'
-                          : 'text-white/45 hover:text-white/60 border border-transparent'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-light text-white/30 tracking-wide uppercase shrink-0">Sort</span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {([
+                      { mode: 'combined' as SortMode, label: 'Score' },
+                      { mode: 'binding' as SortMode, label: 'Binding' },
+                      { mode: 'affinity' as SortMode, label: 'Affinity' },
+                      { mode: 'safety' as SortMode, label: 'Safety' },
+                      { mode: 'novelty' as SortMode, label: 'Novel' },
+                      { mode: 'phase' as SortMode, label: 'Phase' },
+                      { mode: 'alphabetical' as SortMode, label: 'A-Z' },
+                    ]).map(({ mode, label }) => (
+                      <button
+                        key={mode}
+                        onClick={() => { setSortMode(mode); setSelectedIdx(0); }}
+                        className={`px-2 py-1 rounded text-[11px] font-light transition-all duration-300 ${
+                          sortMode === mode
+                            ? 'bg-white/[0.08] text-white/65 border border-white/[0.1]'
+                            : 'text-white/35 hover:text-white/50 border border-transparent'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -648,7 +662,7 @@ function ResultsContent() {
                               : 'border-white/[0.05] bg-white/[0.015] hover:border-white/[0.1] hover:bg-white/[0.03]'
                           }`}
                         >
-                          {/* Row 1: Rank + Name + Pass/fail dot */}
+                          {/* Row 1: Rank + Name + Novelty badge + Pass/fail dot */}
                           <div className="flex items-center gap-2 mb-2.5">
                             <span className="text-xs font-mono font-light text-white/60">
                               #{c.rank}
@@ -656,6 +670,21 @@ function ResultsContent() {
                             <span className="text-sm font-light text-white/85 truncate flex-1">
                               {c.drug_name || 'Unknown Drug'}
                             </span>
+                            {c.novelty_status === 'novel' && (
+                              <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-light tracking-wide border border-teal-500/20 bg-teal-500/10 text-teal-400">
+                                Novel
+                              </span>
+                            )}
+                            {c.novelty_status === 'in_trials' && (
+                              <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-light tracking-wide border border-amber-500/20 bg-amber-500/10 text-amber-400">
+                                In Trials
+                              </span>
+                            )}
+                            {c.novelty_status === 'approved' && (
+                              <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-light tracking-wide border border-white/10 bg-white/5 text-white/50">
+                                Known
+                              </span>
+                            )}
                             {pf && (
                               <span className={`w-2 h-2 rounded-full shrink-0 ${
                                 pf === 'pass' ? 'bg-emerald-500' : pf === 'warn' ? 'bg-yellow-500' : 'bg-red-500'
@@ -912,6 +941,30 @@ function ResultsContent() {
                             <p className="text-white/45 italic">No AI explanation available for this candidate.</p>
                           )}
                         </div>
+
+                        {selected.novelty_status && selected.novelty_status !== 'unknown' && (
+                          <div className="mt-5 pt-4 border-t border-white/[0.05]">
+                            <p className="text-xs font-light tracking-[0.15em] uppercase text-white/45 mb-3">
+                              Novelty Assessment
+                            </p>
+                            <div className="flex items-start gap-3">
+                              <span className={`shrink-0 mt-0.5 px-2.5 py-1 rounded-full text-xs font-light tracking-wide border ${
+                                selected.novelty_status === 'novel'
+                                  ? 'border-teal-500/20 bg-teal-500/10 text-teal-400'
+                                  : selected.novelty_status === 'in_trials'
+                                  ? 'border-amber-500/20 bg-amber-500/10 text-amber-400'
+                                  : 'border-white/10 bg-white/5 text-white/50'
+                              }`}>
+                                {selected.novelty_status === 'novel' ? 'Novel' : selected.novelty_status === 'in_trials' ? 'In Trials' : 'Approved'}
+                              </span>
+                              {selected.novelty_detail && (
+                                <p className="text-sm font-light text-white/50 leading-relaxed">
+                                  {selected.novelty_detail}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
                         {selected.predicted_pkd != null && (
                           <div className="mt-5 pt-4 border-t border-white/[0.05]">
