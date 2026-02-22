@@ -39,6 +39,11 @@ interface Candidate {
   risk_benefit?: string;
   max_phase?: number;
   admet?: AdmetProfile;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
+  novelty_status?: string;
+  novelty_detail?: string;
 }
 
 interface DockingEntry {
@@ -53,6 +58,11 @@ interface DockingResultFull {
   ligand_sdf: string;
   pdb_id: string;
   target_symbol: string;
+  predicted_pkd?: number | null;
+  predicted_kd_nm?: number | null;
+  affinity_score?: number | null;
+  novelty_status?: string;
+  novelty_detail?: string;
 }
 
 interface ResultsData {
@@ -64,9 +74,10 @@ interface ResultsData {
   report: string;
   all_targets?: { symbol: string; name: string; score: number }[];
   all_docking_results?: DockingResultFull[];
+  all_structures?: { symbol: string; pdb_id: string; resolution: number | null; source: string; file_path: string }[];
 }
 
-type SortMode = 'combined' | 'binding' | 'safety' | 'alphabetical' | 'phase';
+type SortMode = 'combined' | 'binding' | 'affinity' | 'safety' | 'novelty' | 'phase';
 type DetailTab = 'explanation' | 'safety' | 'mechanism' | 'report';
 type ViewMode = 'list' | 'heatmap';
 
@@ -89,6 +100,14 @@ const ADMET_PROPERTIES = [
 ] as const;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatKd(kdNm: number): string {
+  if (kdNm < 0.001) return `${(kdNm * 1e6).toFixed(1)} fM`;
+  if (kdNm < 1) return `${(kdNm * 1e3).toFixed(1)} pM`;
+  if (kdNm < 1000) return `${kdNm.toFixed(1)} nM`;
+  if (kdNm < 1e6) return `${(kdNm / 1e3).toFixed(1)} \u00B5M`;
+  return `${(kdNm / 1e6).toFixed(1)} mM`;
+}
 
 function scoreLargeTextClass(score: number): string {
   if (score >= 0.7) return 'text-emerald-400';
@@ -121,10 +140,16 @@ function sortCandidates(candidates: Candidate[], mode: SortMode): Candidate[] {
       return sorted.sort((a, b) => getCombinedScore(b) - getCombinedScore(a));
     case 'binding':
       return sorted.sort((a, b) => b.confidence_score - a.confidence_score);
+    case 'affinity':
+      return sorted.sort((a, b) => (b.affinity_score ?? 0) - (a.affinity_score ?? 0));
     case 'safety':
       return sorted.sort((a, b) => (b.admet?.overall_score ?? 0) - (a.admet?.overall_score ?? 0));
-    case 'alphabetical':
-      return sorted.sort((a, b) => (a.drug_name || '').localeCompare(b.drug_name || ''));
+    case 'novelty': {
+      const noveltyOrder: Record<string, number> = { novel: 0, in_trials: 1, approved: 2, unknown: 3 };
+      return sorted.sort((a, b) =>
+        (noveltyOrder[a.novelty_status || 'unknown'] ?? 3) - (noveltyOrder[b.novelty_status || 'unknown'] ?? 3)
+      );
+    }
     case 'phase':
       return sorted.sort((a, b) => (b.max_phase || 0) - (a.max_phase || 0));
   }
@@ -247,14 +272,10 @@ function MechanismFlow({
 function ViewerControls({
   proteinStyle,
   onStyleChange,
-  ligandVisible,
-  onToggleLigand,
   onReset,
 }: {
   proteinStyle: ProteinStyle;
   onStyleChange: (s: ProteinStyle) => void;
-  ligandVisible: boolean;
-  onToggleLigand: () => void;
   onReset: () => void;
 }) {
   const styles: { value: ProteinStyle; label: string }[] = [
@@ -280,17 +301,6 @@ function ViewerControls({
       ))}
 
       <div className="w-px h-4 bg-white/[0.06] mx-1" />
-
-      <button
-        onClick={onToggleLigand}
-        className={`px-3.5 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 ${
-          ligandVisible
-            ? 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-400/70'
-            : 'border-white/[0.06] bg-white/[0.02] text-white/50 hover:text-white/50'
-        }`}
-      >
-        {ligandVisible ? 'Hide Ligand' : 'Show Ligand'}
-      </button>
 
       <button
         onClick={onReset}
@@ -343,14 +353,19 @@ function TabBar({ active, onChange }: { active: DetailTab; onChange: (t: DetailT
 function ResultsContent() {
   const router = useRouter();
   const viewerRef = useRef<DashboardViewerHandle>(null);
+  const ligandViewerRef = useRef<DashboardViewerHandle>(null);
   const [data, setData] = useState<ResultsData | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [sortMode, setSortMode] = useState<SortMode>('combined');
   const [proteinStyle, setProteinStyle] = useState<ProteinStyle>('cartoon');
-  const [ligandVisible, setLigandVisible] = useState(true);
   const [activeTab, setActiveTab] = useState<DetailTab>('explanation');
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
+
+  const [panelFullscreen, setPanelFullscreen] = useState(false);
+  const [currentPdbId, setCurrentPdbId] = useState('');
+  const [currentTargetSymbol, setCurrentTargetSymbol] = useState('');
+  const pdbCacheRef = useRef<Record<string, string>>({});
 
   // Load data from sessionStorage
   useEffect(() => {
@@ -366,6 +381,12 @@ function ResultsContent() {
         return;
       }
       setData(parsed);
+      // Seed PDB cache with the initial protein
+      if (parsed.target?.pdb_id && parsed.pdb_text) {
+        pdbCacheRef.current[parsed.target.pdb_id] = parsed.pdb_text;
+      }
+      setCurrentPdbId(parsed.target?.pdb_id || '');
+      setCurrentTargetSymbol(parsed.target?.symbol || '');
     } catch {
       router.replace('/research');
     }
@@ -380,14 +401,54 @@ function ResultsContent() {
     (d) => d.drug_name === selected?.drug_name,
   );
 
+  // Fetch PDB text from RCSB/AlphaFold
+  const fetchPdb = useCallback(async (pdbId: string): Promise<string | null> => {
+    if (pdbCacheRef.current[pdbId]) return pdbCacheRef.current[pdbId];
+    const url = pdbId.startsWith('AF-')
+      ? `https://alphafold.ebi.ac.uk/files/${pdbId}-model_v4.pdb`
+      : `https://files.rcsb.org/download/${pdbId}.pdb`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const text = await res.text();
+      pdbCacheRef.current[pdbId] = text;
+      return text;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Update viewer ligand when selection changes
   const handleSelect = useCallback((idx: number) => {
     setSelectedIdx(idx);
     const candidate = sorted[idx];
     if (!candidate || !data) return;
     const docking = data.docking_data?.find((d) => d.drug_name === candidate.drug_name);
-    viewerRef.current?.setLigand(docking?.ligand_sdf || null);
-  }, [sorted, data]);
+    ligandViewerRef.current?.setLigand(docking?.ligand_sdf || null);
+
+    // Check if this drug was docked against a different protein target
+    const dockingFull = data.all_docking_results?.find(
+      (dr) => dr.drug_name === candidate.drug_name,
+    );
+    if (dockingFull?.pdb_id && dockingFull.pdb_id !== currentPdbId) {
+      const targetPdbId = dockingFull.pdb_id;
+      const targetSymbol = dockingFull.target_symbol;
+      const cached = pdbCacheRef.current[targetPdbId];
+      if (cached) {
+        viewerRef.current?.setProtein(cached);
+        setCurrentPdbId(targetPdbId);
+        setCurrentTargetSymbol(targetSymbol);
+      } else {
+        fetchPdb(targetPdbId).then((pdbText) => {
+          if (pdbText) {
+            viewerRef.current?.setProtein(pdbText);
+            setCurrentPdbId(targetPdbId);
+            setCurrentTargetSymbol(targetSymbol);
+          }
+        });
+      }
+    }
+  }, [sorted, data, currentPdbId, fetchPdb]);
 
   // Viewer controls
   const handleStyleChange = useCallback((style: ProteinStyle) => {
@@ -395,11 +456,6 @@ function ResultsContent() {
     viewerRef.current?.setProteinStyle(style);
   }, []);
 
-  const handleToggleLigand = useCallback(() => {
-    const next = !ligandVisible;
-    setLigandVisible(next);
-    viewerRef.current?.setLigandVisible(next);
-  }, [ligandVisible]);
 
   const handleReset = useCallback(() => {
     viewerRef.current?.resetView();
@@ -417,16 +473,49 @@ function ResultsContent() {
     }
   }, [data?.report]);
 
-  // Download report as text
-  const handleDownloadReport = useCallback(() => {
+  // Download report as PDF
+  const reportContentRef = useRef<HTMLDivElement>(null);
+  const handleDownloadReport = useCallback(async () => {
     if (!data?.report) return;
-    const blob = new Blob([data.report], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `repurpose-report-${data.disease.toLowerCase().replace(/\s+/g, '-')}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const html2pdf = (await import('html2pdf.js')).default;
+
+    // Clone the rendered report content for PDF styling
+    const source = reportContentRef.current;
+    const container = document.createElement('div');
+    container.style.cssText = 'font-family: system-ui, sans-serif; color: #1a1a1a; padding: 40px; max-width: 800px; line-height: 1.7;';
+
+    if (source) {
+      container.innerHTML = source.innerHTML;
+    } else {
+      // If report tab isn't active, render markdown as simple HTML
+      container.innerHTML = `<pre style="white-space: pre-wrap; font-family: system-ui, sans-serif;">${data.report}</pre>`;
+    }
+
+    // Style elements for print readability
+    container.querySelectorAll('*').forEach((el) => {
+      (el as HTMLElement).style.color = '#1a1a1a';
+    });
+    container.querySelectorAll('h1, h2, h3').forEach((el) => {
+      (el as HTMLElement).style.cssText = 'color: #111; margin-top: 1.5em; margin-bottom: 0.5em; font-weight: 600;';
+    });
+    container.querySelectorAll('table').forEach((el) => {
+      (el as HTMLElement).style.cssText = 'border-collapse: collapse; width: 100%; margin: 1em 0;';
+    });
+    container.querySelectorAll('th, td').forEach((el) => {
+      (el as HTMLElement).style.cssText = 'border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 13px; color: #1a1a1a;';
+    });
+    container.querySelectorAll('th').forEach((el) => {
+      (el as HTMLElement).style.backgroundColor = '#f5f5f5';
+    });
+
+    const filename = `repurpose-report-${data.disease.toLowerCase().replace(/\s+/g, '-')}.pdf`;
+    await html2pdf().set({
+      margin: [10, 12],
+      filename,
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    }).from(container).save();
   }, [data]);
 
   // Heatmap cell click
@@ -530,16 +619,7 @@ function ResultsContent() {
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
-              Export Report
-            </button>
-            <button
-              onClick={handleCopyReport}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/60 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-              </svg>
-              {copyFeedback ? 'Copied!' : 'Share'}
+              Export PDF
             </button>
           </div>
         </motion.nav>
@@ -554,23 +634,24 @@ function ResultsContent() {
             transition={{ duration: 0.6, ease }}
           >
             {/* Header */}
-            <div className="px-5 py-4 border-b border-white/[0.04] shrink-0">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2.5">
-                  <h2 className="text-base font-light text-white/70">Drug Candidates</h2>
-                  <span className="px-3 py-1 rounded-full bg-white/[0.05] text-xs font-light text-white/55 tabular-nums">
-                    {data.candidates.length} results
+            <div className="px-5 py-4 border-b border-white/[0.04] shrink-0 space-y-3">
+              {/* Title row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-baseline gap-2">
+                  <h2 className="text-base font-light text-white/70">Candidates</h2>
+                  <span className="text-xs font-light text-white/55 tabular-nums">
+                    {data.candidates.length}
                   </span>
                 </div>
 
                 {/* View toggle */}
-                <div className="flex gap-1 p-0.5 rounded-md bg-white/[0.02] border border-white/[0.05]">
+                <div className="flex gap-0.5 p-0.5 rounded-md bg-white/[0.02] border border-white/[0.05]">
                   {(['list', 'heatmap'] as ViewMode[]).map((mode) => (
                     <button
                       key={mode}
                       onClick={() => setViewMode(mode)}
-                      className={`relative px-3.5 py-1.5 rounded text-xs font-light capitalize tracking-wide transition-all duration-300 ${
-                        viewMode === mode ? 'text-white/70' : 'text-white/45 hover:text-white/60'
+                      className={`relative px-2.5 py-1 rounded text-[11px] font-light capitalize tracking-wide transition-all duration-300 ${
+                        viewMode === mode ? 'text-white/85' : 'text-white/60 hover:text-white/75'
                       }`}
                     >
                       {viewMode === mode && (
@@ -586,29 +667,32 @@ function ResultsContent() {
                 </div>
               </div>
 
-              {/* Sort */}
+              {/* Sort row */}
               {viewMode === 'list' && (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-light text-white/60 tracking-wide uppercase">Sort:</span>
-                  {([
-                    { mode: 'combined' as SortMode, label: 'Combined' },
-                    { mode: 'binding' as SortMode, label: 'Binding' },
-                    { mode: 'safety' as SortMode, label: 'Safety' },
-                    { mode: 'phase' as SortMode, label: 'Phase' },
-                    { mode: 'alphabetical' as SortMode, label: 'A-Z' },
-                  ]).map(({ mode, label }) => (
-                    <button
-                      key={mode}
-                      onClick={() => { setSortMode(mode); setSelectedIdx(0); }}
-                      className={`px-2.5 py-1.5 rounded-md text-xs font-light transition-all duration-300 ${
-                        sortMode === mode
-                          ? 'bg-white/[0.06] text-white/60 border border-white/[0.1]'
-                          : 'text-white/45 hover:text-white/60 border border-transparent'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-light text-white/55 tracking-wide uppercase shrink-0">Sort</span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {([
+                      { mode: 'combined' as SortMode, label: 'Score' },
+                      { mode: 'binding' as SortMode, label: 'Binding' },
+                      { mode: 'affinity' as SortMode, label: 'Affinity' },
+                      { mode: 'safety' as SortMode, label: 'Safety' },
+                      { mode: 'novelty' as SortMode, label: 'Novel' },
+                      { mode: 'phase' as SortMode, label: 'Phase' },
+                    ]).map(({ mode, label }) => (
+                      <button
+                        key={mode}
+                        onClick={() => { setSortMode(mode); setSelectedIdx(0); }}
+                        className={`px-2 py-1 rounded text-[11px] font-light transition-all duration-300 ${
+                          sortMode === mode
+                            ? 'bg-white/[0.08] text-white/80 border border-white/[0.1]'
+                            : 'text-white/55 hover:text-white/70 border border-transparent'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -649,7 +733,7 @@ function ResultsContent() {
                               : 'border-white/[0.05] bg-white/[0.015] hover:border-white/[0.1] hover:bg-white/[0.03]'
                           }`}
                         >
-                          {/* Row 1: Rank + Name + Pass/fail dot */}
+                          {/* Row 1: Rank + Name + Novelty badge + Pass/fail dot */}
                           <div className="flex items-center gap-2 mb-2.5">
                             <span className="text-xs font-mono font-light text-white/60">
                               #{c.rank}
@@ -657,6 +741,24 @@ function ResultsContent() {
                             <span className="text-sm font-light text-white/85 truncate flex-1">
                               {c.drug_name || 'Unknown Drug'}
                             </span>
+                            <span className="text-sm font-mono font-medium text-white/50 shrink-0">
+                              {c.combined_score?.toFixed(2)}
+                            </span>
+                            {c.novelty_status === 'novel' && (
+                              <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-light tracking-wide border border-teal-500/20 bg-teal-500/10 text-teal-400">
+                                Novel
+                              </span>
+                            )}
+                            {c.novelty_status === 'in_trials' && (
+                              <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-light tracking-wide border border-amber-500/20 bg-amber-500/10 text-amber-400">
+                                In Trials
+                              </span>
+                            )}
+                            {c.novelty_status === 'approved' && (
+                              <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-light tracking-wide border border-white/10 bg-white/5 text-white/50">
+                                Known
+                              </span>
+                            )}
                             {pf && (
                               <span className={`w-2 h-2 rounded-full shrink-0 ${
                                 pf === 'pass' ? 'bg-emerald-500' : pf === 'warn' ? 'bg-yellow-500' : 'bg-red-500'
@@ -668,7 +770,7 @@ function ResultsContent() {
                           <div className="space-y-1.5">
                             {/* Binding bar — always blue */}
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Binding</span>
+                              <span className="text-[10px] font-light text-white/60 w-12 uppercase tracking-wider">Binding</span>
                               <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                 <motion.div
                                   className="h-full rounded-full bg-blue-500"
@@ -682,16 +784,34 @@ function ResultsContent() {
                               </span>
                             </div>
 
+                            {/* Affinity bar — purple */}
+                            {c.affinity_score != null && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-light text-white/60 w-12 uppercase tracking-wider">Affinity</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                  <motion.div
+                                    className="h-full rounded-full bg-purple-500"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${Math.min(c.affinity_score * 100, 100)}%` }}
+                                    transition={{ duration: 0.8, delay: 0.05, ease }}
+                                  />
+                                </div>
+                                <span className="text-xs font-mono font-light tabular-nums w-9 text-right text-purple-400/80">
+                                  {c.affinity_score.toFixed(2)}
+                                </span>
+                              </div>
+                            )}
+
                             {/* Safety bar — colored by score */}
                             {admet && (
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Safety</span>
+                                <span className="text-[10px] font-light text-white/60 w-12 uppercase tracking-wider">Safety</span>
                                 <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                   <motion.div
                                     className={`h-full rounded-full ${scoreBg(admet.overall_score)}`}
                                     initial={{ width: 0 }}
                                     animate={{ width: `${Math.min(admet.overall_score * 100, 100)}%` }}
-                                    transition={{ duration: 0.8, delay: 0.1, ease }}
+                                    transition={{ duration: 0.8, delay: 0.15, ease }}
                                   />
                                 </div>
                                 <span className={`text-xs font-mono font-light tabular-nums w-9 text-right ${scoreTextClass(admet.overall_score)}`}>
@@ -703,7 +823,7 @@ function ResultsContent() {
 
                           {/* Row 3: Mechanism */}
                           {c.mechanism && (
-                            <p className="mt-2 text-xs font-light text-white/45 leading-relaxed line-clamp-1">
+                            <p className="mt-2 text-xs font-light text-white/60 leading-relaxed line-clamp-1">
                               {c.mechanism}
                             </p>
                           )}
@@ -738,61 +858,96 @@ function ResultsContent() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.1, ease }}
           >
-            {/* Section 1: 3D Viewer */}
-            <div className="shrink-0 p-5 pb-3">
-              <div
-                className="rounded-2xl border border-white/[0.06] p-4 backdrop-blur-sm"
-                style={glassStyle}
-              >
-                <div className="relative">
-                  {data.pdb_text && (
-                    <DashboardViewer
-                      ref={viewerRef}
-                      pdbText={data.pdb_text}
-                      initialLigandSdf={selectedDocking?.ligand_sdf}
-                      initialProteinStyle={proteinStyle}
-                      height="min(45vh, 400px)"
-                    />
-                  )}
+            {/* Section 1: Split 3D Viewer */}
+            <AnimatePresence initial={false}>
+              {!panelFullscreen && (
+                <motion.div
+                  key="viewers"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  className="shrink-0 overflow-hidden"
+                >
+                  <div className="p-5 pb-3">
+                    <div className="flex gap-3">
 
-                  {/* Confidence overlay badge */}
-                  {selected && (
-                    <div className="absolute top-3 right-3 flex items-center gap-3 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-light text-white/55 tracking-wide uppercase">Binding</span>
-                        <span className={`text-lg font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}>
-                          {selected.confidence_score.toFixed(2)}
-                        </span>
+                      {/* Left — ligand only */}
+                      <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
+                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/70 font-light mb-2 px-1">Ligand</p>
+                        <DashboardViewer
+                          ref={ligandViewerRef}
+                          initialLigandSdf={selectedDocking?.ligand_sdf}
+                          initialProteinStyle="hidden"
+                          height="min(38vh, 340px)"
+                        />
                       </div>
-                      {selected.admet && (
-                        <>
-                          <div className="w-px h-5 bg-white/[0.1]" />
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-light text-white/55 tracking-wide uppercase">Safety</span>
-                            <span className={`text-lg font-light tabular-nums ${scoreLargeTextClass(selected.admet.overall_score)}`}>
-                              {selected.admet.overall_score.toFixed(2)}
-                            </span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
 
-                <div className="mt-3">
-                  <ViewerControls
-                    proteinStyle={proteinStyle}
-                    onStyleChange={handleStyleChange}
-                    ligandVisible={ligandVisible}
-                    onToggleLigand={handleToggleLigand}
-                    onReset={handleReset}
-                  />
-                </div>
-              </div>
-            </div>
+                      {/* Right — protein structure */}
+                      <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
+                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/70 font-light mb-2 px-1">
+                          Protein Structure{currentTargetSymbol ? ` — ${currentTargetSymbol}` : ''}{currentPdbId ? ` (${currentPdbId})` : ''}
+                        </p>
+                        <div className="relative">
+                          {data.pdb_text && (
+                            <DashboardViewer
+                              ref={viewerRef}
+                              pdbText={data.pdb_text}
+                              initialProteinStyle={proteinStyle}
+                              height="min(38vh, 340px)"
+                            />
+                          )}
+                          {/* Confidence badge */}
+                          {selected && (
+                            <div className="absolute top-2 right-2 flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Binding</span>
+                                <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}>
+                                  {selected.confidence_score.toFixed(2)}
+                                </span>
+                              </div>
+                              {selected.predicted_kd_nm != null && (
+                                <>
+                                  <div className="w-px h-4 bg-white/[0.1]" />
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[0.55rem] font-light text-purple-400/60 tracking-wide uppercase">Affinity</span>
+                                    <span className="text-base font-light tabular-nums text-purple-400">
+                                      {formatKd(selected.predicted_kd_nm)}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                              {selected.admet && (
+                                <>
+                                  <div className="w-px h-4 bg-white/[0.1]" />
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Safety</span>
+                                    <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.admet.overall_score)}`}>
+                                      {selected.admet.overall_score.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-2">
+                          <ViewerControls
+                            proteinStyle={proteinStyle}
+                            onStyleChange={handleStyleChange}
+                            onReset={handleReset}
+                          />
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Section 2: Tabbed Content */}
-            <div className="flex-1 overflow-hidden px-5 pb-5 flex flex-col">
+            <div className={`flex-1 overflow-hidden px-5 pb-5 flex flex-col ${panelFullscreen ? 'pt-5' : ''}`}>
               <div
                 className="flex-1 rounded-2xl border border-white/[0.06] backdrop-blur-sm flex flex-col overflow-hidden"
                 style={glassStyle}
@@ -801,23 +956,47 @@ function ResultsContent() {
                 <div className="px-4 pt-4 pb-3 shrink-0 flex items-center justify-between">
                   <TabBar active={activeTab} onChange={setActiveTab} />
 
-                  {selected && (
-                    <motion.div
-                      key={selected.drug_name}
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex items-center gap-2"
+                  <div className="flex items-center gap-3">
+                    {selected && (
+                      <motion.div
+                        key={selected.drug_name}
+                        initial={{ opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center gap-2"
+                      >
+                        <span className="text-sm font-light text-white/50">{selected.drug_name}</span>
+                        {selected.admet && (
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            selected.admet.pass_fail === 'pass' ? 'bg-emerald-500'
+                              : selected.admet.pass_fail === 'warn' ? 'bg-yellow-500'
+                              : 'bg-red-500'
+                          }`} />
+                        )}
+                      </motion.div>
+                    )}
+
+                    <motion.button
+                      onClick={() => setPanelFullscreen((v) => !v)}
+                      className="p-2 rounded-lg border border-white/[0.06] bg-white/[0.02] text-white/40 hover:text-white/60 hover:border-white/[0.1] transition-colors duration-300"
+                      title={panelFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                      whileTap={{ scale: 0.9 }}
                     >
-                      <span className="text-sm font-light text-white/50">{selected.drug_name}</span>
-                      {selected.admet && (
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          selected.admet.pass_fail === 'pass' ? 'bg-emerald-500'
-                            : selected.admet.pass_fail === 'warn' ? 'bg-yellow-500'
-                            : 'bg-red-500'
-                        }`} />
-                      )}
-                    </motion.div>
-                  )}
+                      <motion.svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
+                        animate={{ rotate: panelFullscreen ? 180 : 0 }}
+                        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                      >
+                        {/* Top-left arrow */}
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4l5 5M4 4h4M4 4v4" />
+                        {/* Bottom-right arrow */}
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 20l-5-5M20 20h-4M20 20v-4" />
+                      </motion.svg>
+                    </motion.button>
+                  </div>
                 </div>
 
                 {/* Tab content */}
@@ -838,6 +1017,55 @@ function ResultsContent() {
                             <p className="text-white/45 italic">No AI explanation available for this candidate.</p>
                           )}
                         </div>
+
+                        {selected.novelty_status && selected.novelty_status !== 'unknown' && (
+                          <div className="mt-5 pt-4 border-t border-white/[0.05]">
+                            <p className="text-xs font-light tracking-[0.15em] uppercase text-white/45 mb-3">
+                              Novelty Assessment
+                            </p>
+                            <div className="flex items-start gap-3">
+                              <span className={`shrink-0 mt-0.5 px-2.5 py-1 rounded-full text-xs font-light tracking-wide border ${
+                                selected.novelty_status === 'novel'
+                                  ? 'border-teal-500/20 bg-teal-500/10 text-teal-400'
+                                  : selected.novelty_status === 'in_trials'
+                                  ? 'border-amber-500/20 bg-amber-500/10 text-amber-400'
+                                  : 'border-white/10 bg-white/5 text-white/50'
+                              }`}>
+                                {selected.novelty_status === 'novel' ? 'Novel' : selected.novelty_status === 'in_trials' ? 'In Trials' : 'Approved'}
+                              </span>
+                              {selected.novelty_detail && (
+                                <p className="text-sm font-light text-white/50 leading-relaxed">
+                                  {selected.novelty_detail}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {selected.predicted_pkd != null && (
+                          <div className="mt-5 pt-4 border-t border-white/[0.05]">
+                            <p className="text-xs font-light tracking-[0.15em] uppercase text-white/45 mb-3">
+                              Predicted Binding Affinity
+                            </p>
+                            <div className="flex items-center gap-4">
+                              <div className="px-4 py-3 rounded-xl border border-purple-500/20 bg-purple-500/[0.06]">
+                                <span className="text-xs font-light text-purple-400/60 uppercase tracking-wide">Kd</span>
+                                <p className="text-lg font-light text-purple-400 tabular-nums">
+                                  {selected.predicted_kd_nm != null ? formatKd(selected.predicted_kd_nm) : 'N/A'}
+                                </p>
+                              </div>
+                              <div className="px-4 py-3 rounded-xl border border-purple-500/20 bg-purple-500/[0.06]">
+                                <span className="text-xs font-light text-purple-400/60 uppercase tracking-wide">pKd</span>
+                                <p className="text-lg font-light text-purple-400 tabular-nums">
+                                  {selected.predicted_pkd.toFixed(2)}
+                                </p>
+                              </div>
+                              <p className="text-xs font-light text-white/40 leading-relaxed max-w-xs">
+                                Predicted from molecular descriptors. pKd {'>'} 7 is strong, 5-7 moderate, {'<'} 5 weak.
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
                         {selected.risk_benefit && (
                           <div className="mt-5 pt-4 border-t border-white/[0.05]">
@@ -957,7 +1185,7 @@ function ResultsContent() {
                         </p>
                         <MechanismFlow
                           drugName={selected.drug_name}
-                          targetSymbol={data.target.symbol}
+                          targetSymbol={currentTargetSymbol || data.target.symbol}
                           mechanism={selected.mechanism}
                           disease={data.disease}
                         />
@@ -999,11 +1227,11 @@ function ResultsContent() {
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                             </svg>
-                            Download as Markdown
+                            Download as PDF
                           </button>
                         </div>
 
-                        <div className="prose prose-invert prose-sm max-w-none
+                        <div ref={reportContentRef} className="prose prose-invert prose-sm max-w-none
                           prose-headings:font-light prose-headings:text-white/70 prose-headings:tracking-wide
                           prose-p:text-white/50 prose-p:font-light prose-p:leading-relaxed
                           prose-strong:text-white/70 prose-strong:font-normal

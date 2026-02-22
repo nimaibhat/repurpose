@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import deque
 from pathlib import Path
 
 import httpx
@@ -56,29 +57,6 @@ def _flush_errors():
             logger.error(f"Failed to write error log: {e}")
     else:
         print(f"ℹ️  No errors to flush (this is normal if all dockings succeeded)")
-
-
-class RateLimiter:
-    """Token bucket rate limiter to ensure we don't exceed API rate limits."""
-    
-    def __init__(self, max_calls: int, period: float):
-        self.max_calls = max_calls
-        self.period = period
-        self.delay_between_calls = period / max_calls  # 1.5 seconds for 40/minute
-        self.last_call_time = 0.0
-        self.lock = asyncio.Lock()
-    
-    async def acquire(self):
-        """Wait until it's safe to make the next API call."""
-        async with self.lock:
-            current_time = time.time()
-            time_since_last = current_time - self.last_call_time
-            
-            if time_since_last < self.delay_between_calls:
-                wait_time = self.delay_between_calls - time_since_last
-                await asyncio.sleep(wait_time)
-            
-            self.last_call_time = time.time()
 
 
 class RateLimiter:
@@ -160,7 +138,6 @@ async def _dock_single(
     protein_asset_id: str,
     smiles: str,
     drug_name: str | None,
-    limiter: RateLimiter,
 ) -> dict | None:
     """Dock a single ligand against a protein. Returns best pose or None on failure."""
     start_time = time.time()
@@ -198,7 +175,7 @@ async def _dock_single(
             await rate_limiter.acquire()
             upload_start = time.time()
             
-            ligand_asset_id = await _upload_asset(client, api_key, sdf_text)
+            ligand_asset_id = await _upload_asset(client, api_key, sdf_text, rate_limiter)
             upload_time = time.time() - upload_start
 
             # Rate limit before DiffDock call
@@ -351,9 +328,7 @@ async def run_diffdock_batch(
     rate_limiter = RateLimiter(RATE_LIMIT_CALLS, RATE_LIMIT_PERIOD)
 
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        # Rate limit the protein upload
-        await rate_limiter.acquire()
-        protein_asset_id = await _upload_asset(client, api_key, pdb_text)
+        protein_asset_id = await _upload_asset(client, api_key, pdb_text, rate_limiter)
 
         tasks = [
             _dock_single(client, semaphore, rate_limiter, api_key, protein_asset_id, d["smiles"], d.get("name"))

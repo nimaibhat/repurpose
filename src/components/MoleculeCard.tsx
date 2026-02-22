@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 
 // ─── Props ──────────────────────────────────────────────────────────────────
@@ -62,101 +62,29 @@ export default function MoleculeCard({
   rank,
   mechanism,
 }: MoleculeCardProps) {
-  const svgRef = useRef<HTMLDivElement>(null);
-  const [parseError, setParseError] = useState(false);
-
+  const [imgError, setImgError] = useState(false);
   const { canvasW, canvasH } = sizeConfig[size];
 
-  // ── SmilesDrawer rendering (SvgDrawer avoids the Drawer.draw parameter bug in v2) ──
-  useEffect(() => {
-    if (!svgRef.current || !smiles) return;
-    setParseError(false);
+  const pubchemUrl = smiles
+    ? `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/PNG?record_type=2d&image_size=${canvasW}x${canvasH}`
+    : null;
 
-    let mounted = true;
-
-    (async () => {
-      const SmilesDrawer = (await import('smiles-drawer')).default;
-      if (!mounted || !svgRef.current) return;
-
-      const drawer = new SmilesDrawer.SvgDrawer({
-        width: canvasW,
-        height: canvasH,
-        bondThickness: 1.2,
-        bondLength: 15,
-        shortBondLength: 0.8,
-        bondSpacing: 4,
-        atomVisualization: 'default',
-        isomeric: true,
-        debug: false,
-        terminalCarbons: false,
-        explicitHydrogens: false,
-        overlapSensitivity: 0.42,
-        overlapResolutionIterations: 1,
-        compactDrawing: true,
-        fontSizeLarge: 6,
-        fontSizeSmall: 4,
-        padding: 16,
-        themes: {
-          dark: {
-            C: '#cccccc',
-            O: '#ff4444',
-            N: '#4488ff',
-            S: '#ffcc00',
-            F: '#44ff44',
-            Cl: '#44ff44',
-            Br: '#cc6633',
-            I: '#aa44ff',
-            P: '#ff8800',
-            H: '#999999',
-            BACKGROUND: 'transparent',
-          },
-        },
-      });
-
-      SmilesDrawer.parse(
-        smiles,
-        (tree: any) => {
-          if (!mounted || !svgRef.current) return;
-          svgRef.current.innerHTML = '';
-          drawer.draw(tree, 'svg', 'dark', false);
-          const svg = svgRef.current.querySelector('svg') || drawer.svgDrawer?.svgWrapper?.svg;
-          if (svg) {
-            svgRef.current.innerHTML = '';
-            svgRef.current.appendChild(svg);
-          } else {
-            // fallback: let SvgDrawer write directly to a target id
-            const id = `smiles-${Math.random().toString(36).slice(2)}`;
-            const el = document.createElement('svg');
-            el.id = id;
-            svgRef.current.innerHTML = '';
-            svgRef.current.appendChild(el);
-            drawer.draw(tree, id, 'dark', false);
-          }
-        },
-        () => {
-          if (mounted) setParseError(true);
-        },
-      );
-    })();
-
-    return () => { mounted = false; };
-  }, [smiles, canvasW, canvasH]);
-
-  // ── SVG / fallback element ──
-  const canvasEl = parseError ? (
+  const canvasEl = !pubchemUrl || imgError ? (
     <div
       className="flex items-center justify-center rounded-lg bg-white/[0.02]"
       style={{ width: canvasW, height: canvasH }}
     >
-      <span className="text-xs font-light text-white/60">
-        Structure unavailable
-      </span>
+      <span className="text-xs font-light text-white/40">Structure unavailable</span>
     </div>
   ) : (
-    <div
-      ref={svgRef}
+    <img
+      src={pubchemUrl}
+      alt={drugName || smiles}
+      width={canvasW}
+      height={canvasH}
+      onError={() => setImgError(true)}
       className="rounded-lg"
-      style={{ width: canvasW, height: canvasH, overflow: 'hidden' }}
+      style={{ objectFit: 'contain', filter: 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(1.1)' }}
     />
   );
 

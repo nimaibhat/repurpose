@@ -268,7 +268,7 @@ export default function PipelineStepper({ steps }: PipelineStepperProps) {
   }, [steps]);
 
   return (
-    <div className="flex items-start w-full">
+    <div className="flex items-start justify-center w-full">
       {elements}
     </div>
   );
