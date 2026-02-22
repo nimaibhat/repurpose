@@ -142,6 +142,7 @@ async def run_pipeline(request: PipelineRequest):
                 api_key=settings.nvidia_nim_api_key,
                 pdb_text=pdb_text,
                 drugs=target_drugs,
+                pdb_id=pdb_id,
             )
 
             # Add structure info to each result
@@ -325,6 +326,7 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
                 api_key=settings.nvidia_nim_api_key,
                 pdb_text=pdb_text,
                 drugs=target_drugs,
+                pdb_id=pdb_id,
             )
             for result in docking_results:
                 result["pdb_id"] = pdb_id
