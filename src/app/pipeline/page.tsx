@@ -10,6 +10,7 @@ import PipelineStepper from '@/components/PipelineStepper';
 const WaveField = dynamic(() => import('@/components/WaveField'), { ssr: false });
 const MolViewer = dynamic(() => import('@/components/MolViewer'), { ssr: false });
 const MoleculeCard = dynamic(() => import('@/components/MoleculeCard'), { ssr: false });
+const ADMETRadar = dynamic(() => import('@/components/ADMETRadar'), { ssr: false });
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -50,12 +51,37 @@ interface DockingResult {
   priority_rank?: number;
 }
 
+interface AdmetSummary {
+  drug_name?: string | null;
+  absorption: number;
+  distribution: number;
+  metabolism: number;
+  excretion: number;
+  toxicity: number;
+  drug_likeness: number;
+  overall_score: number;
+  flags: string[];
+  pass_fail: 'pass' | 'warn' | 'fail';
+}
+
+interface PipelineCandidate {
+  rank: number;
+  drug_name: string;
+  smiles: string;
+  confidence_score: number;
+  combined_score: number;
+  mechanism?: string;
+  explanation?: string;
+  admet: AdmetSummary;
+}
+
 interface PipelineResponse {
   disease: string;
   targets: TargetHit[];
   structures: Structure[];
   drugs: Drug[];
   docking_results: DockingResult[];
+  candidates: PipelineCandidate[];
   report: string;
 }
 
@@ -66,20 +92,23 @@ type StepStatus = 'pending' | 'running' | 'complete' | 'error';
 interface PipelineState {
   stepStatuses: StepStatus[];
   stepData: Array<Record<string, any> | null>;
+  stepMessages: Array<string | null>;
   error: string | null;
   isDone: boolean;
 }
 
 type PipelineAction =
-  | { type: 'STEP_RUNNING'; step: number }
-  | { type: 'STEP_COMPLETE'; step: number; data: Record<string, any> }
+  | { type: 'STEP_RUNNING'; step: number; message?: string }
+  | { type: 'STEP_COMPLETE'; step: number; data: Record<string, any>; message?: string }
   | { type: 'STEP_ERROR'; step: number; message: string }
   | { type: 'DONE'; step: number; data: Record<string, any> }
-  | { type: 'FETCH_ERROR'; message: string };
+  | { type: 'FETCH_ERROR'; message: string }
+  | { type: 'RESTORE'; state: PipelineState };
 
 const initialState: PipelineState = {
-  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending'],
-  stepData: [null, null, null, null, null],
+  stepStatuses: ['pending', 'pending', 'pending', 'pending', 'pending', 'pending'],
+  stepData: [null, null, null, null, null, null],
+  stepMessages: [null, null, null, null, null, null],
   error: null,
   isDone: false,
 };
@@ -88,15 +117,19 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
   switch (action.type) {
     case 'STEP_RUNNING': {
       const stepStatuses = [...state.stepStatuses];
+      const stepMessages = [...state.stepMessages];
       stepStatuses[action.step - 1] = 'running';
-      return { ...state, stepStatuses };
+      if (action.message) stepMessages[action.step - 1] = action.message;
+      return { ...state, stepStatuses, stepMessages };
     }
     case 'STEP_COMPLETE': {
       const stepStatuses = [...state.stepStatuses];
       const stepData = [...state.stepData];
+      const stepMessages = [...state.stepMessages];
       stepStatuses[action.step - 1] = 'complete';
       stepData[action.step - 1] = action.data;
-      return { ...state, stepStatuses, stepData };
+      if (action.message) stepMessages[action.step - 1] = action.message;
+      return { ...state, stepStatuses, stepData, stepMessages };
     }
     case 'STEP_ERROR': {
       const stepStatuses = [...state.stepStatuses];
@@ -112,6 +145,8 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
     }
     case 'FETCH_ERROR':
       return { ...state, error: action.message };
+    case 'RESTORE':
+      return action.state;
     default:
       return state;
   }
@@ -119,13 +154,14 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'Report'];
-const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'file-text'];
+const STEP_LABELS = ['Targets', 'Structures', 'Drugs', 'Docking', 'ADMET', 'Report'];
+const STEP_ICONS = ['crosshair', 'box', 'pill', 'flask-conical', 'activity', 'file-text'];
 const STEP_SUB_MESSAGES: string[][] = [
   ['Querying Open Targets database...', 'Ranking disease-gene associations...'],
   ['Searching RCSB PDB database...', 'Downloading protein structures...', 'Trying AlphaFold fallback...'],
   ['Querying ChEMBL database...', 'Finding approved compounds...', 'Extracting molecular data...'],
   ['Preparing protein-ligand pairs...', 'Running DiffDock simulations...', 'Scoring binding poses...', 'Computing confidence scores...'],
+  ['Computing molecular descriptors...', 'Evaluating absorption & distribution...', 'Scoring metabolism & excretion...', 'Assessing toxicity & drug-likeness...'],
   ['Analyzing top docking results...', 'Generating AI-powered report...', 'Formatting recommendations...'],
 ];
 
@@ -183,9 +219,9 @@ async function consumeSSEStream(
       if (eventType === 'done') {
         dispatch({ type: 'DONE', step, data });
       } else if (status === 'running') {
-        dispatch({ type: 'STEP_RUNNING', step });
+        dispatch({ type: 'STEP_RUNNING', step, message });
       } else if (status === 'complete') {
-        dispatch({ type: 'STEP_COMPLETE', step, data });
+        dispatch({ type: 'STEP_COMPLETE', step, data, message });
       } else if (status === 'error') {
         dispatch({ type: 'STEP_ERROR', step, message });
       }
@@ -220,7 +256,7 @@ function StepCard({
     >
       <div className="flex items-center gap-3 mb-3">
         <div
-          className={`w-6 h-6 rounded-full flex items-center justify-center text-[0.55rem] font-light ${
+          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-light ${
             status === 'running'
               ? 'bg-blue-500/[0.12] text-blue-400'
               : status === 'complete'
@@ -230,7 +266,7 @@ function StepCard({
         >
           {index + 1}
         </div>
-        <span className="text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/40">
+        <span className="text-sm font-light tracking-[0.15em] uppercase text-white/60">
           {label}
         </span>
         {status === 'running' && (
@@ -240,11 +276,11 @@ function StepCard({
             transition={{ duration: 1.5, repeat: Infinity }}
           >
             <div className="w-1 h-1 rounded-full bg-blue-400" />
-            <span className="text-[0.6rem] font-light text-blue-400/70">Processing</span>
+            <span className="text-xs font-light text-blue-400/70">Processing</span>
           </motion.div>
         )}
       </div>
-      <p className="text-sm font-light text-white/60 leading-relaxed">{message}</p>
+      <p className="text-base font-light text-white/60 leading-relaxed">{message}</p>
       {children && <div className="mt-4">{children}</div>}
     </motion.div>
   );
@@ -261,6 +297,7 @@ function PipelineContent() {
   const mode = searchParams.get('mode') || 'explore';
   const targetSymbol = searchParams.get('target_symbol') || '';
   const drugName = searchParams.get('drug_name') || '';
+  const maxTargets = parseInt(searchParams.get('max_targets') || '5', 10);
   const maxCandidates = parseInt(searchParams.get('max_candidates') || '25', 10);
 
   // SSE-driven state
@@ -276,6 +313,9 @@ function PipelineContent() {
   const startTimeRef = useRef(Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasStoredResults = useRef(false);
+
+  // Cache key identifying this exact search
+  const cacheKey = `${disease}|${mode}|${targetSymbol}|${drugName}|${maxTargets}|${maxCandidates}`;
 
   // Redirect if missing params
   useEffect(() => {
@@ -303,6 +343,24 @@ function PipelineContent() {
     return () => clearInterval(interval);
   }, [state.isDone, state.error]);
 
+  // Restore from cache if navigating back to the same search
+  useEffect(() => {
+    if (!disease || hasStarted.current) return;
+    try {
+      const raw = sessionStorage.getItem('pipeline_state_cache');
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached.key === cacheKey && cached.state?.isDone) {
+          dispatch({ type: 'RESTORE', state: cached.state });
+          if (cached.pdbText) setPdbText(cached.pdbText);
+          hasStarted.current = true; // prevent SSE from firing
+          hasStoredResults.current = true;
+        }
+      }
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disease]);
+
   // SSE stream fetch
   useEffect(() => {
     if (!disease || hasStarted.current) return;
@@ -312,7 +370,7 @@ function PipelineContent() {
 
     (async () => {
       try {
-        const resp = await fetch('http://localhost:8000/api/pipeline/stream', {
+        const resp = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/pipeline/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -320,6 +378,7 @@ function PipelineContent() {
             mode,
             target_symbol: targetSymbol || undefined,
             drug_name: drugName || undefined,
+            max_targets: maxTargets,
             max_candidates: maxCandidates,
           }),
           signal: abortController.signal,
@@ -343,21 +402,21 @@ function PipelineContent() {
       abortController.abort();
       hasStarted.current = false;
     };
-  }, [disease, mode, targetSymbol, drugName, maxCandidates]);
+  }, [disease, mode, targetSymbol, drugName, maxTargets, maxCandidates]);
 
   // Reconstruct full result from accumulated step data
   const result = useMemo<PipelineResponse | null>(() => {
     if (!state.isDone) return null;
-    const [s1, s2, s3, s4, s5] = state.stepData;
-    if (!s1 || !s2 || !s3 || !s4 || !s5) return null;
+    const [s1, s2, s3, s4, s5, s6] = state.stepData;
+    if (!s1 || !s2 || !s3 || !s4 || !s5 || !s6) return null;
     return {
       disease: s1.disease,
       targets: s1.targets,
       structures: s2.structures,
       drugs: s3.drugs,
-      // Step 5 (done) returns enriched docking_results with explanations
-      docking_results: s5.docking_results || s4.docking_results,
-      report: s5.report,
+      docking_results: s6.docking_results || s4.docking_results,
+      candidates: s6.candidates || [],
+      report: s6.report,
     };
   }, [state.isDone, state.stepData]);
 
@@ -391,18 +450,29 @@ function PipelineContent() {
     const s = stepStatus(i);
     if (s === 'error') return state.error || 'An error occurred';
     if (s === 'running') {
+      // Use backend message if available, otherwise cycle sub-messages
+      const backendMsg = state.stepMessages[i];
+      if (backendMsg) return backendMsg;
       const msgs = STEP_SUB_MESSAGES[i];
       return msgs[subMsgIndex % msgs.length];
     }
     if (s === 'complete') {
+      // Use backend message if available
+      const backendMsg = state.stepMessages[i];
+      if (backendMsg) return backendMsg;
       const d = state.stepData[i];
       if (d) {
         switch (i) {
-          case 0: return `Found ${d.targets.length} target${d.targets.length !== 1 ? 's' : ''}: ${d.targets.map((t: any) => t.symbol).join(', ')}`;
+          case 0: {
+            const syms = d.targets.map((t: any) => t.symbol);
+            const preview = syms.slice(0, 5).join(', ') + (syms.length > 5 ? `, +${syms.length - 5} more` : '');
+            return `Found ${d.targets.length} target${d.targets.length !== 1 ? 's' : ''}: ${preview}`;
+          }
           case 1: return `Retrieved ${d.structures.length} structure${d.structures.length !== 1 ? 's' : ''}`;
           case 2: return `Found ${d.drugs.length} drug candidate${d.drugs.length !== 1 ? 's' : ''}`;
           case 3: return `Docked ${d.docking_results.length} compound${d.docking_results.length !== 1 ? 's' : ''} successfully`;
-          case 4: return 'Report generated';
+          case 4: return `ADMET analysis complete`;
+          case 5: return 'Report generated';
         }
       }
       return 'Complete';
@@ -414,7 +484,9 @@ function PipelineContent() {
   const targetsData: TargetHit[] = state.stepData[0]?.targets || [];
   const structuresData: Structure[] = state.stepData[1]?.structures || [];
   const drugsData: Drug[] = state.stepData[2]?.drugs || [];
-  const dockingData: DockingResult[] = (state.stepData[4]?.docking_results || state.stepData[3]?.docking_results || []);
+  const admetData: AdmetSummary[] = state.stepData[4]?.admet_results || state.stepData[5]?.admet_results || [];
+  const dockingData: DockingResult[] = (state.stepData[5]?.docking_results || state.stepData[3]?.docking_results || []);
+  const pipelineCandidates: PipelineCandidate[] = state.stepData[5]?.candidates || [];
 
   // Build candidates from progressive data
   const drugMap = useMemo(() => {
@@ -424,6 +496,8 @@ function PipelineContent() {
   }, [drugsData]);
 
   const candidates = useMemo(() => {
+    // Use enriched candidates from done event when available
+    if (pipelineCandidates.length > 0) return pipelineCandidates;
     return dockingData.map((dr: DockingResult, i: number) => {
       const drug = drugMap.get(dr.drug_name || '');
       return {
@@ -431,13 +505,14 @@ function PipelineContent() {
         drug_name: dr.drug_name || 'Unknown',
         smiles: dr.smiles,
         confidence_score: dr.confidence_score,
+        combined_score: dr.confidence_score,
         mechanism: drug?.mechanism || undefined,
         max_phase: drug?.max_phase,
         explanation: dr.explanation || '',
         risk_benefit: dr.risk_benefit || '',
       };
     });
-  }, [dockingData, drugMap]);
+  }, [dockingData, drugMap, pipelineCandidates]);
 
   const dockingViewData = useMemo(() => {
     return dockingData.map((dr: DockingResult) => ({
@@ -461,7 +536,7 @@ function PipelineContent() {
         name: topTarget?.name || '',
         pdb_id: topStructure?.pdb_id || '',
       },
-      candidates,
+      candidates: result.candidates.length > 0 ? result.candidates : candidates,
       docking_data: dockingViewData,
       pdb_text: pdbText || '',
       report: result.report,
@@ -491,6 +566,18 @@ function PipelineContent() {
     } catch { /* best-effort */ }
   }, [pdbText, result]);
 
+  // Save full reducer state to cache so Back navigation can restore it
+  useEffect(() => {
+    if (!state.isDone) return;
+    try {
+      sessionStorage.setItem('pipeline_state_cache', JSON.stringify({
+        key: cacheKey,
+        state,
+        pdbText,
+      }));
+    } catch { /* best-effort */ }
+  }, [state.isDone, pdbText, cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Timer string
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
@@ -511,33 +598,42 @@ function PipelineContent() {
       <div className="relative z-10 min-h-screen">
         {/* Top Bar */}
         <motion.nav
-          className="flex items-center justify-between px-8 py-5"
+          className="flex items-center justify-between px-10 py-6"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease }}
         >
           <button
-            onClick={() => router.push('/research')}
-            className="flex items-center gap-2 text-[0.7rem] font-light tracking-[0.15em] uppercase text-white/40 hover:text-white/70 transition-colors duration-300"
+            onClick={() => router.back()}
+            className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/60 hover:text-white/70 transition-colors duration-300"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            New Search
+            Back
           </button>
 
           <div className="flex items-center gap-4">
-            <span className="px-3 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-[0.6rem] font-light text-white/50 tracking-wide">
+            <button
+              onClick={() => router.push('/research')}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/50 hover:text-white/70 hover:border-white/[0.14] transition-all duration-300"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+              </svg>
+              New Search
+            </button>
+            <span className="px-3 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-xs font-light text-white/50 tracking-wide">
               {disease}
               {mode !== 'explore' && (
-                <span className="text-white/25 ml-1.5">
+                <span className="text-white/45 ml-1.5">
                   {mode === 'target' ? `/ ${targetSymbol}` : `/ ${drugName}`}
                 </span>
               )}
             </span>
             <span
-              className={`font-mono text-sm font-light tabular-nums ${
-                isDone ? 'text-white/30' : 'text-blue-400/70'
+              className={`font-mono text-base font-light tabular-nums ${
+                isDone ? 'text-white/50' : 'text-blue-400/70'
               }`}
             >
               {timerStr}
@@ -547,7 +643,7 @@ function PipelineContent() {
 
         {/* Stepper Row */}
         <motion.div
-          className="max-w-2xl mx-auto px-8 mt-4 mb-10"
+          className="max-w-3xl mx-auto px-8 mt-4 mb-10"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.2 }}
@@ -565,15 +661,15 @@ function PipelineContent() {
         {/* Error */}
         {state.error && (
           <motion.div
-            className="max-w-2xl mx-auto px-8 mb-6"
+            className="max-w-3xl mx-auto px-8 mb-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
             <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.05] p-6 backdrop-blur-xl text-center">
-              <p className="text-sm font-light text-red-400/80 mb-4">{state.error}</p>
+              <p className="text-base font-light text-red-400/80 mb-4">{state.error}</p>
               <button
                 onClick={() => window.location.reload()}
-                className="px-5 py-2 rounded-lg border border-red-500/20 bg-red-500/[0.08] text-xs font-light tracking-[0.1em] uppercase text-red-400/80 hover:bg-red-500/[0.15] transition-colors duration-300"
+                className="px-5 py-2.5 rounded-lg border border-red-500/20 bg-red-500/[0.08] text-sm font-light tracking-[0.1em] uppercase text-red-400/80 hover:bg-red-500/[0.15] transition-colors duration-300"
               >
                 Retry
               </button>
@@ -582,8 +678,8 @@ function PipelineContent() {
         )}
 
         {/* Step Cards */}
-        <div className="max-w-2xl mx-auto px-8 pb-16 space-y-4">
-          <AnimatePresence mode="popLayout">
+        <div className="max-w-3xl mx-auto px-8 pb-16 space-y-4">
+          <AnimatePresence mode="sync">
             {/* Step 1: Targets */}
             {stepStatus(0) !== 'pending' && (
               <StepCard key="step-1" label={STEP_LABELS[0]} index={0} status={stepStatus(0)} message={stepMessage(0)}>
@@ -594,18 +690,23 @@ function PipelineContent() {
                     transition={{ duration: 0.4, ease }}
                     className="flex flex-wrap gap-2"
                   >
-                    {targetsData.map((t) => (
+                    {targetsData.slice(0, 8).map((t) => (
                       <div
                         key={t.symbol}
                         className="inline-flex items-center gap-3 px-4 py-2.5 rounded-xl border border-blue-500/15 bg-blue-500/[0.05]"
                       >
                         <span className="text-lg font-light text-blue-400">{t.symbol}</span>
-                        <span className="text-xs font-light text-white/35">{t.name}</span>
-                        <span className="text-[0.5rem] font-mono font-light text-white/20">
+                        <span className="text-xs font-light text-white/55">{t.name}</span>
+                        <span className="text-xs font-mono font-light text-white/60">
                           {t.score.toFixed(3)}
                         </span>
                       </div>
                     ))}
+                    {targetsData.length > 8 && (
+                      <div className="inline-flex items-center px-4 py-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02]">
+                        <span className="text-sm font-light text-white/40">+{targetsData.length - 8} more</span>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </StepCard>
@@ -620,17 +721,17 @@ function PipelineContent() {
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ duration: 0.4, ease }}
                   >
-                    <MolViewer
-                      proteinPdb={pdbText}
-                      width="300px"
-                      height="200px"
-                      proteinStyle="cartoon"
-                      autoRotate
-                    />
+                    <div className="w-full max-w-md aspect-[3/2]">
+                      <MolViewer
+                        proteinPdb={pdbText}
+                        proteinStyle="cartoon"
+                        autoRotate
+                      />
+                    </div>
                     {structuresData.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-3">
                         {structuresData.map((s) => (
-                          <span key={s.pdb_id} className="text-[0.6rem] font-light text-white/25 tracking-wide">
+                          <span key={s.pdb_id} className="text-xs font-light text-white/45 tracking-wide">
                             {s.symbol}: {s.pdb_id}
                             {s.resolution && ` (${s.resolution}\u00C5)`}
                             {` \u2022 ${s.source}`}
@@ -683,17 +784,17 @@ function PipelineContent() {
                   >
                     {dockingViewData.length > 1 && (
                       <div className="flex items-center gap-2 mb-3 flex-wrap">
-                        <span className="text-[0.6rem] font-light text-white/25 tracking-wide uppercase">
+                        <span className="text-xs font-light text-white/45 tracking-wide uppercase">
                           Viewing:
                         </span>
                         {dockingViewData.slice(0, 8).map((d, i) => (
                           <button
                             key={i}
                             onClick={() => setSelectedDocking(i)}
-                            className={`px-2.5 py-1 rounded-md text-[0.6rem] font-light transition-all duration-300 ${
+                            className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 ${
                               selectedDocking === i
                                 ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
-                                : 'border border-white/[0.05] text-white/30 hover:text-white/50'
+                                : 'border border-white/[0.05] text-white/50 hover:text-white/50'
                             }`}
                           >
                             {d.drug_name}
@@ -701,22 +802,100 @@ function PipelineContent() {
                         ))}
                       </div>
                     )}
-                    <MolViewer
-                      proteinPdb={pdbText}
-                      ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
-                      width="600px"
-                      height="400px"
-                      proteinStyle="surface"
-                      autoRotate
-                    />
+                    <div className="w-full aspect-[3/2]">
+                      <MolViewer
+                        proteinPdb={pdbText}
+                        ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
+                        proteinStyle="surface"
+                        autoRotate
+                      />
+                    </div>
                   </motion.div>
                 )}
               </StepCard>
             )}
 
-            {/* Step 5: Report */}
+            {/* Step 5: ADMET */}
             {stepStatus(4) !== 'pending' && (
               <StepCard key="step-5" label={STEP_LABELS[4]} index={4} status={stepStatus(4)} message={stepMessage(4)}>
+                {stepStatus(4) === 'complete' && admetData.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.4, ease }}
+                  >
+                    {/* Mini radar charts row */}
+                    <div className="flex gap-3 overflow-x-auto pb-3 scrollbar-thin">
+                      {admetData.map((a, i) => (
+                        <motion.div
+                          key={a.drug_name || i}
+                          initial={{ opacity: 0, scale: 0.6 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ duration: 0.4, delay: i * 0.1, ease }}
+                          className={`relative shrink-0 rounded-xl border p-2 ${
+                            a.pass_fail === 'fail'
+                              ? 'border-red-500/20 bg-red-500/[0.04]'
+                              : a.pass_fail === 'warn'
+                              ? 'border-yellow-500/20 bg-yellow-500/[0.04]'
+                              : 'border-emerald-500/15 bg-emerald-500/[0.03]'
+                          }`}
+                        >
+                          {/* Green glow for passed */}
+                          {a.pass_fail === 'pass' && (
+                            <motion.div
+                              className="absolute inset-0 rounded-xl"
+                              initial={{ boxShadow: '0 0 20px rgba(16,185,129,0.3)' }}
+                              animate={{ boxShadow: '0 0 0px rgba(16,185,129,0)' }}
+                              transition={{ duration: 1.5, delay: i * 0.1 }}
+                            />
+                          )}
+                          {/* Red overlay for failed */}
+                          {a.pass_fail === 'fail' && (
+                            <div className="absolute inset-0 rounded-xl bg-red-500/[0.06] pointer-events-none" />
+                          )}
+                          <ADMETRadar
+                            scores={{
+                              absorption: a.absorption,
+                              distribution: a.distribution,
+                              metabolism: a.metabolism,
+                              excretion: a.excretion,
+                              toxicity: a.toxicity,
+                              drug_likeness: a.drug_likeness,
+                            }}
+                            flags={a.flags}
+                            passFail={a.pass_fail}
+                            drugName={a.drug_name || 'Unknown'}
+                            size="small"
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Summary line */}
+                    <div className="mt-2 flex items-center gap-4 px-1">
+                      {(() => {
+                        const nPass = admetData.filter((a) => a.pass_fail === 'pass').length;
+                        const nWarn = admetData.filter((a) => a.pass_fail === 'warn').length;
+                        const nFail = admetData.filter((a) => a.pass_fail === 'fail').length;
+                        return (
+                          <>
+                            <span className="text-xs font-light text-emerald-400/70">{nPass} safe</span>
+                            <span className="text-white/15">&middot;</span>
+                            <span className="text-xs font-light text-yellow-400/70">{nWarn} caution</span>
+                            <span className="text-white/15">&middot;</span>
+                            <span className="text-xs font-light text-red-400/70">{nFail} risk detected</span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </motion.div>
+                )}
+              </StepCard>
+            )}
+
+            {/* Step 6: Report */}
+            {stepStatus(5) !== 'pending' && (
+              <StepCard key="step-6" label={STEP_LABELS[5]} index={5} status={stepStatus(5)} message={stepMessage(5)}>
                 {state.isDone && result && (
                   <motion.div
                     initial={{ opacity: 0 }}
@@ -725,7 +904,7 @@ function PipelineContent() {
                   >
                     <button
                       onClick={() => router.push('/results')}
-                      className="relative w-full py-3 rounded-xl text-sm font-light tracking-[0.1em] uppercase text-white/80 overflow-hidden border border-blue-500/20 bg-blue-500/[0.06] hover:bg-blue-500/[0.1] transition-colors duration-300 cursor-pointer"
+                      className="relative w-full py-4 rounded-xl text-base font-light tracking-[0.1em] uppercase text-white/80 overflow-hidden border border-blue-500/20 bg-blue-500/[0.06] hover:bg-blue-500/[0.1] transition-colors duration-300 cursor-pointer"
                       style={{
                         boxShadow: '0 0 25px rgba(59, 130, 246, 0.1), 0 0 50px rgba(59, 130, 246, 0.04)',
                       }}

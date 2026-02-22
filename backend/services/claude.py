@@ -9,10 +9,20 @@ SYSTEM_PROMPT = (
     "You are a computational biology research assistant. You are generating a drug "
     "repurposing report for researchers. Be scientifically precise but write in clear "
     "language. For each drug candidate, explain the biological mechanism connecting the "
-    "drug to the cancer target. Reference specific pathways and protein functions. End "
-    "with a clear recommendation of which candidates are most promising and why. Include "
-    "appropriate caveats that this is computational prediction requiring experimental "
-    "validation."
+    "drug to the target. Reference specific pathways and protein functions.\n\n"
+    "IMPORTANT: You are given BOTH molecular docking scores (binding confidence, 0-1) "
+    "AND ADMET safety profiles (absorption, distribution, metabolism, excretion, toxicity, "
+    "drug-likeness). Your final ranking MUST weigh both binding strength and safety.\n\n"
+    "- Prioritize compounds with BOTH high binding confidence AND good safety profiles.\n"
+    "- For compounds that bind well but have safety concerns, explicitly call this out, e.g.: "
+    "\"Compound X shows strong binding (0.87) but is flagged for toxicity concern — monitor "
+    "for adverse effects if repurposed.\"\n"
+    "- For compounds that are very safe but bind weakly, note this too, e.g.: "
+    "\"Compound Y has an excellent safety profile but low binding confidence (0.34) — "
+    "unlikely to be effective.\"\n"
+    "- The final ranking should weight both binding AND safety, not just one.\n\n"
+    "Include appropriate caveats that this is computational prediction requiring "
+    "experimental validation."
 )
 
 MODEL = "claude-sonnet-4-20250514"
@@ -27,11 +37,26 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
         mech = r.get("mechanism") or "Unknown mechanism"
         phase = r.get("max_phase")
         phase_str = f"Phase {phase}" if phase else "Unknown phase"
+        admet = r.get("admet") or {}
+        admet_overall = admet.get("overall_score", "N/A")
+        admet_pf = admet.get("pass_fail", "N/A")
+        admet_flags = ", ".join(admet.get("flags", [])) or "None"
+        combined = r.get("combined_score", "N/A")
+
         drugs_section += (
             f"{i}. **{name}** (SMILES: {r['smiles'][:60]}...)\n"
-            f"   - Confidence score: {score}\n"
+            f"   - Binding confidence: {score}\n"
             f"   - Mechanism: {mech}\n"
-            f"   - Clinical stage: {phase_str}\n\n"
+            f"   - Clinical stage: {phase_str}\n"
+            f"   - ADMET overall: {admet_overall} ({admet_pf})\n"
+            f"   - ADMET flags: {admet_flags}\n"
+            f"   - Absorption: {admet.get('absorption', 'N/A')}, "
+            f"Distribution: {admet.get('distribution', 'N/A')}, "
+            f"Metabolism: {admet.get('metabolism', 'N/A')}, "
+            f"Excretion: {admet.get('excretion', 'N/A')}, "
+            f"Toxicity: {admet.get('toxicity', 'N/A')}, "
+            f"Drug-likeness: {admet.get('drug_likeness', 'N/A')}\n"
+            f"   - Combined score (binding 60% + safety 40%): {combined}\n\n"
         )
 
     return (
@@ -39,13 +64,17 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
         f"## Target Protein\n"
         f"- Symbol: {target['symbol']}\n"
         f"- Name: {target['name']}\n\n"
-        f"## Docking Results (ranked by binding confidence)\n\n"
+        f"## Candidates (ranked by combined binding + safety score)\n\n"
         f"{drugs_section}"
-        f"For the top candidates (up to 5), provide:\n"
+        f"For each candidate (up to 5), provide:\n"
         f"1. A 2-3 sentence mechanistic explanation of why this drug might work\n"
-        f"2. What the binding confidence score means in practical terms\n"
+        f"2. Assessment of BOTH the binding confidence AND safety profile together\n"
         f"3. Any known research or clinical trials related to this repurposing\n"
-        f"4. A risk/benefit summary\n\n"
+        f"4. A risk/benefit summary that accounts for ADMET flags\n\n"
+        f"Specifically:\n"
+        f"- If a compound binds well but has safety flags, call it out explicitly\n"
+        f"- If a compound is safe but binds weakly, note it is unlikely to be effective\n"
+        f"- Your final ranking should reflect the combined score weighting\n\n"
         f"End with a prioritized recommendation ranking.\n\n"
         f"IMPORTANT: After the markdown report, output a JSON block on its own line "
         f"starting with ```json and ending with ``` containing an array of objects "

@@ -63,6 +63,7 @@ interface ModelInnerProps {
   autoRotate: boolean;
   autoRotateSpeed: number;
   modelScale: number;
+  colorOverride?: string;
   onLoaded?: () => void;
 }
 
@@ -84,6 +85,7 @@ const ModelInner = ({
   autoRotate,
   autoRotateSpeed,
   modelScale,
+  colorOverride,
   onLoaded
 }: ModelInnerProps) => {
   const outer = useRef<THREE.Group>(null);
@@ -113,6 +115,10 @@ const ModelInner = ({
       if (o.isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
+        if (colorOverride) {
+          o.material = o.material.clone();
+          o.material.color = new THREE.Color(colorOverride);
+        }
         if (fadeIn) {
           o.material.transparent = true;
           o.material.opacity = 0;
@@ -356,6 +362,7 @@ interface ModelViewerProps {
   autoRotate?: boolean;
   autoRotateSpeed?: number;
   modelScale?: number;
+  colorOverride?: string;
   onModelLoaded?: () => void;
 }
 
@@ -385,6 +392,7 @@ const ModelViewer = ({
   autoRotate = false,
   autoRotateSpeed = 0.35,
   modelScale = 1,
+  colorOverride,
   onModelLoaded
 }: ModelViewerProps) => {
   useEffect(() => void useGLTF.preload(url), [url]);
@@ -436,6 +444,7 @@ const ModelViewer = ({
             autoRotate={autoRotate}
             autoRotateSpeed={autoRotateSpeed}
             modelScale={modelScale}
+            colorOverride={colorOverride}
             onLoaded={onModelLoaded}
           />
         </Suspense>

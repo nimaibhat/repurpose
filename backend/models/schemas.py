@@ -7,7 +7,8 @@ class PipelineRequest(BaseModel):
     mode: str = "explore"  # "explore" | "target" | "drug"
     target_symbol: str | None = None
     drug_name: str | None = None
-    max_candidates: int = 10
+    max_targets: int = 5
+    max_candidates: int = 25  # 0 = unlimited
 
 
 # --- Targets ---
@@ -103,6 +104,72 @@ class ReportResponse(BaseModel):
     candidates: list[CandidateExplanation]
 
 
+# --- ADMET ---
+class AdmetProperty(BaseModel):
+    score: float
+    label: str  # "Low" | "Medium" | "High"
+    details: str
+
+
+class AdmetResult(BaseModel):
+    smiles: str
+    drug_name: str | None = None
+    absorption: AdmetProperty
+    distribution: AdmetProperty
+    metabolism: AdmetProperty
+    excretion: AdmetProperty
+    toxicity: AdmetProperty
+    drug_likeness: AdmetProperty
+    overall_score: float
+
+
+class AdmetRequest(BaseModel):
+    smiles: str
+
+
+class AdmetBatchRequest(BaseModel):
+    smiles_list: list[str]
+
+
+class AdmetDrugInput(BaseModel):
+    name: str
+    smiles: str
+
+
+class AdmetScores(BaseModel):
+    absorption: float
+    distribution: float
+    metabolism: float
+    excretion: float
+    toxicity: float
+    drug_likeness: float
+
+
+class AdmetDrugResult(BaseModel):
+    drug_name: str
+    smiles: str
+    scores: AdmetScores
+    overall_score: float
+    flags: list[str]
+    pass_fail: str  # "pass" | "warn" | "fail"
+
+
+class AdmetSummary(BaseModel):
+    total: int
+    passed: int
+    warned: int
+    failed: int
+
+
+class AdmetDrugsRequest(BaseModel):
+    drugs: list[AdmetDrugInput]
+
+
+class AdmetDrugsResponse(BaseModel):
+    results: list[AdmetDrugResult]
+    summary: AdmetSummary
+
+
 # --- Full Pipeline Result ---
 class PipelineResult(BaseModel):
     disease: str
@@ -110,4 +177,5 @@ class PipelineResult(BaseModel):
     structures: list[dict]
     drugs: list[dict]
     docking_results: list[dict]
+    candidates: list[dict] = []
     report: str

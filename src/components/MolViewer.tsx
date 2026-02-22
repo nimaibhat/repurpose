@@ -17,7 +17,7 @@ export default function MolViewer({
   proteinPdb,
   ligandSdf,
   width = '100%',
-  height = '400px',
+  height = '100%',
   proteinStyle = 'cartoon',
   showSurface = false,
   autoRotate = false,
@@ -74,20 +74,28 @@ export default function MolViewer({
   // ── Initialize viewer ONCE when proteinPdb becomes available ──
   useEffect(() => {
     if (!containerRef.current || !proteinPdb) return;
-    // Guard against double-init (StrictMode / HMR)
-    if (readyRef.current) return;
 
-    let mounted = true;
+    // Clean up any previous viewer before creating a new one
+    if (viewerRef.current) {
+      viewerRef.current.clear();
+      viewerRef.current = null;
+    }
+    ligandModelRef.current = null;
+    surfaceIdRef.current = null;
+    readyRef.current = false;
+
+    const container = containerRef.current;
+    let cancelled = false;
 
     (async () => {
       const $3Dmol = await import('3dmol');
-      if (!mounted || !containerRef.current) return;
+      if (cancelled || !container.isConnected) return;
       $3DmolRef.current = $3Dmol;
 
       // Wipe the container in case a previous viewer left DOM artifacts
-      containerRef.current.innerHTML = '';
+      container.innerHTML = '';
 
-      const viewer = $3Dmol.createViewer(containerRef.current, {
+      const viewer = $3Dmol.createViewer(container, {
         backgroundColor: 'black',
         antialias: true,
       });
@@ -118,14 +126,7 @@ export default function MolViewer({
     })();
 
     return () => {
-      mounted = false;
-      if (viewerRef.current) {
-        viewerRef.current.clear();
-        viewerRef.current = null;
-      }
-      ligandModelRef.current = null;
-      surfaceIdRef.current = null;
-      readyRef.current = false;
+      cancelled = true;
     };
     // Only re-run when the protein PDB itself changes (new protein = new viewer).
     // ligandSdf changes are handled by the dedicated effect below.
@@ -174,6 +175,15 @@ export default function MolViewer({
     viewer.render();
   }, [proteinStyle, showSurface, applyProteinStyle]);
 
+  // ── Block scroll zoom ──
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const block = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
+    container.addEventListener('wheel', block, { passive: false, capture: true });
+    return () => container.removeEventListener('wheel', block, { capture: true });
+  }, []);
+
   // ── React to autoRotate changes ──
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -193,7 +203,7 @@ export default function MolViewer({
         className="rounded-xl border border-white/[0.06] bg-black/40 flex items-center justify-center"
         style={{ width, height }}
       >
-        <span className="text-xs font-light text-white/20 tracking-wide">
+        <span className="text-xs font-light text-white/40 tracking-wide">
           Loading structure…
         </span>
       </div>
