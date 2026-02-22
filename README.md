@@ -40,54 +40,6 @@ Results stream to the frontend via Server-Sent Events (SSE), so each step render
 | Data Sources | Open Targets, RCSB PDB, AlphaFold, ChEMBL, UniProt |
 | Database | Supabase |
 
-## Project Structure
-
-```
-repurpose/
-├── src/
-│   ├── app/
-│   │   ├── page.tsx                # Landing page
-│   │   ├── research/page.tsx       # Disease input & search config
-│   │   ├── pipeline/page.tsx       # Real-time pipeline visualization
-│   │   ├── pipeline/protein/       # Target-first pipeline variant
-│   │   └── results/page.tsx        # Results with rankings, 3D viewer, AI report
-│   └── components/
-│       ├── DashboardViewer.tsx      # 3D protein + ligand viewer (3Dmol.js)
-│       ├── MolViewer.tsx            # 2D molecule rendering
-│       ├── MoleculeCard.tsx         # Drug candidate card
-│       ├── ADMETRadar.tsx           # ADMET radar chart
-│       ├── ConfidenceHeatmap.tsx    # Binding confidence heatmap
-│       └── PipelineStepper.tsx      # Pipeline progress indicator
-├── backend/
-│   ├── main.py                     # FastAPI app, model loading at startup
-│   ├── config.py                   # Environment/settings
-│   ├── routes/
-│   │   ├── pipeline.py             # Disease → drug pipeline (batch + SSE)
-│   │   ├── pipeline_protein.py     # Target-first pipeline variant
-│   │   ├── targets.py              # Target search endpoint
-│   │   ├── structures.py           # PDB structure retrieval
-│   │   ├── drugs.py                # Drug/compound search
-│   │   ├── docking.py              # DiffDock docking endpoint
-│   │   ├── admet.py                # ADMET prediction endpoint
-│   │   └── report.py               # AI report generation
-│   ├── services/
-│   │   ├── open_targets.py         # Disease → protein targets
-│   │   ├── rcsb.py                 # PDB structures + AlphaFold fallback
-│   │   ├── chembl.py               # Drug/compound search via ChEMBL
-│   │   ├── nvidia_nim.py           # DiffDock batch docking
-│   │   ├── xgb_affinity.py         # XGBoost binding affinity prediction
-│   │   ├── admet.py                # ADMET safety scoring (RDKit + Tox21)
-│   │   ├── novelty.py              # Drug novelty check via Claude
-│   │   ├── claude.py               # AI report generation
-│   │   └── registry.py             # Supabase database helpers
-│   ├── models/
-│   │   ├── xgb_affinity/           # Trained XGBoost model + metadata
-│   │   └── tox21/                  # Pre-trained Tox21 toxicity model
-│   └── scripts/
-│       ├── train_xgb_affinity.py   # Train affinity model on PDBbind v2020
-│       └── train_tox21.py          # Train Tox21 toxicity model
-```
-
 ## Setup
 
 ### Prerequisites
@@ -137,6 +89,6 @@ python3 scripts/train_xgb_affinity.py --pdbbind-dir /path/to/refined-set
 
 1. Open http://localhost:3000 and click through to the research page
 2. Enter a disease (e.g. "pancreatic cancer")
-3. Choose a mode — **Explore** (all targets), **Target** (specific protein), or **Drug** (specific compound)
+3. Choose a mode: **Explore** (all targets) or **Target** (specific protein)
 4. Click **Run Analysis** — the pipeline page streams progress in real time
 5. View the full results page with ranked candidates, 3D docked poses, ADMET profiles, and AI-generated recommendations
