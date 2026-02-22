@@ -348,10 +348,11 @@ function ResultsContent() {
   const [data, setData] = useState<ResultsData | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [sortMode, setSortMode] = useState<SortMode>('combined');
-  const [proteinStyle, setProteinStyle] = useState<ProteinStyle>('hidden');
+  const [proteinStyle, setProteinStyle] = useState<ProteinStyle>('cartoon');
   const [activeTab, setActiveTab] = useState<DetailTab>('explanation');
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [panelFullscreen, setPanelFullscreen] = useState(false);
 
   // Load data from sessionStorage
   useEffect(() => {
@@ -755,80 +756,93 @@ function ResultsContent() {
             transition={{ duration: 0.6, delay: 0.1, ease }}
           >
             {/* Section 1: Split 3D Viewer */}
-            <div className="shrink-0 p-5 pb-3">
-              <div className="flex gap-3">
+            <AnimatePresence initial={false}>
+              {!panelFullscreen && (
+                <motion.div
+                  key="viewers"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  className="shrink-0 overflow-hidden"
+                >
+                  <div className="p-5 pb-3">
+                    <div className="flex gap-3">
 
-                {/* Left — ligand only */}
-                <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
-                  <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Ligand</p>
-                  <DashboardViewer
-                    ref={ligandViewerRef}
-                    initialLigandSdf={selectedDocking?.ligand_sdf}
-                    initialProteinStyle="hidden"
-                    height="min(38vh, 340px)"
-                  />
-                </div>
-
-                {/* Right — protein structure */}
-                <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
-                  <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Protein Structure</p>
-                  <div className="relative">
-                    {data.pdb_text && (
-                      <DashboardViewer
-                        ref={viewerRef}
-                        pdbText={data.pdb_text}
-                        initialProteinStyle={proteinStyle}
-                        height="min(38vh, 340px)"
-                      />
-                    )}
-                    {/* Confidence badge */}
-                    {selected && (
-                      <div className="absolute top-2 right-2 flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
-                        <div className="flex items-center gap-1">
-                          <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Binding</span>
-                          <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}>
-                            {selected.confidence_score.toFixed(2)}
-                          </span>
-                        </div>
-                        {selected.predicted_kd_nm != null && (
-                          <>
-                            <div className="w-px h-4 bg-white/[0.1]" />
-                            <div className="flex items-center gap-1">
-                              <span className="text-[0.55rem] font-light text-purple-400/60 tracking-wide uppercase">Affinity</span>
-                              <span className="text-base font-light tabular-nums text-purple-400">
-                                {formatKd(selected.predicted_kd_nm)}
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        {selected.admet && (
-                          <>
-                            <div className="w-px h-4 bg-white/[0.1]" />
-                            <div className="flex items-center gap-1">
-                              <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Safety</span>
-                              <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.admet.overall_score)}`}>
-                                {selected.admet.overall_score.toFixed(2)}
-                              </span>
-                            </div>
-                          </>
-                        )}
+                      {/* Left — ligand only */}
+                      <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
+                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Ligand</p>
+                        <DashboardViewer
+                          ref={ligandViewerRef}
+                          initialLigandSdf={selectedDocking?.ligand_sdf}
+                          initialProteinStyle="hidden"
+                          height="min(38vh, 340px)"
+                        />
                       </div>
-                    )}
-                  </div>
-                  <div className="mt-2">
-                    <ViewerControls
-                      proteinStyle={proteinStyle}
-                      onStyleChange={handleStyleChange}
-                      onReset={handleReset}
-                    />
-                  </div>
-                </div>
 
-              </div>
-            </div>
+                      {/* Right — protein structure */}
+                      <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
+                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Protein Structure</p>
+                        <div className="relative">
+                          {data.pdb_text && (
+                            <DashboardViewer
+                              ref={viewerRef}
+                              pdbText={data.pdb_text}
+                              initialProteinStyle={proteinStyle}
+                              height="min(38vh, 340px)"
+                            />
+                          )}
+                          {/* Confidence badge */}
+                          {selected && (
+                            <div className="absolute top-2 right-2 flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Binding</span>
+                                <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}>
+                                  {selected.confidence_score.toFixed(2)}
+                                </span>
+                              </div>
+                              {selected.predicted_kd_nm != null && (
+                                <>
+                                  <div className="w-px h-4 bg-white/[0.1]" />
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[0.55rem] font-light text-purple-400/60 tracking-wide uppercase">Affinity</span>
+                                    <span className="text-base font-light tabular-nums text-purple-400">
+                                      {formatKd(selected.predicted_kd_nm)}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                              {selected.admet && (
+                                <>
+                                  <div className="w-px h-4 bg-white/[0.1]" />
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Safety</span>
+                                    <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.admet.overall_score)}`}>
+                                      {selected.admet.overall_score.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-2">
+                          <ViewerControls
+                            proteinStyle={proteinStyle}
+                            onStyleChange={handleStyleChange}
+                            onReset={handleReset}
+                          />
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Section 2: Tabbed Content */}
-            <div className="flex-1 overflow-hidden px-5 pb-5 flex flex-col">
+            <div className={`flex-1 overflow-hidden px-5 pb-5 flex flex-col ${panelFullscreen ? 'pt-5' : ''}`}>
               <div
                 className="flex-1 rounded-2xl border border-white/[0.06] backdrop-blur-sm flex flex-col overflow-hidden"
                 style={glassStyle}
@@ -837,23 +851,47 @@ function ResultsContent() {
                 <div className="px-4 pt-4 pb-3 shrink-0 flex items-center justify-between">
                   <TabBar active={activeTab} onChange={setActiveTab} />
 
-                  {selected && (
-                    <motion.div
-                      key={selected.drug_name}
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex items-center gap-2"
+                  <div className="flex items-center gap-3">
+                    {selected && (
+                      <motion.div
+                        key={selected.drug_name}
+                        initial={{ opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center gap-2"
+                      >
+                        <span className="text-sm font-light text-white/50">{selected.drug_name}</span>
+                        {selected.admet && (
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            selected.admet.pass_fail === 'pass' ? 'bg-emerald-500'
+                              : selected.admet.pass_fail === 'warn' ? 'bg-yellow-500'
+                              : 'bg-red-500'
+                          }`} />
+                        )}
+                      </motion.div>
+                    )}
+
+                    <motion.button
+                      onClick={() => setPanelFullscreen((v) => !v)}
+                      className="p-2 rounded-lg border border-white/[0.06] bg-white/[0.02] text-white/40 hover:text-white/60 hover:border-white/[0.1] transition-colors duration-300"
+                      title={panelFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                      whileTap={{ scale: 0.9 }}
                     >
-                      <span className="text-sm font-light text-white/50">{selected.drug_name}</span>
-                      {selected.admet && (
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          selected.admet.pass_fail === 'pass' ? 'bg-emerald-500'
-                            : selected.admet.pass_fail === 'warn' ? 'bg-yellow-500'
-                            : 'bg-red-500'
-                        }`} />
-                      )}
-                    </motion.div>
-                  )}
+                      <motion.svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
+                        animate={{ rotate: panelFullscreen ? 180 : 0 }}
+                        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                      >
+                        {/* Top-left arrow */}
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4l5 5M4 4h4M4 4v4" />
+                        {/* Bottom-right arrow */}
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 20l-5-5M20 20h-4M20 20v-4" />
+                      </motion.svg>
+                    </motion.button>
+                  </div>
                 </div>
 
                 {/* Tab content */}
