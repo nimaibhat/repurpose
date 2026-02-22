@@ -74,6 +74,7 @@ interface ResultsData {
   report: string;
   all_targets?: { symbol: string; name: string; score: number }[];
   all_docking_results?: DockingResultFull[];
+  all_structures?: { symbol: string; pdb_id: string; resolution: number | null; source: string; file_path: string }[];
 }
 
 type SortMode = 'combined' | 'binding' | 'affinity' | 'safety' | 'novelty' | 'phase';
@@ -362,6 +363,9 @@ function ResultsContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
 
   const [panelFullscreen, setPanelFullscreen] = useState(false);
+  const [currentPdbId, setCurrentPdbId] = useState('');
+  const [currentTargetSymbol, setCurrentTargetSymbol] = useState('');
+  const pdbCacheRef = useRef<Record<string, string>>({});
 
   // Load data from sessionStorage
   useEffect(() => {
@@ -377,6 +381,12 @@ function ResultsContent() {
         return;
       }
       setData(parsed);
+      // Seed PDB cache with the initial protein
+      if (parsed.target?.pdb_id && parsed.pdb_text) {
+        pdbCacheRef.current[parsed.target.pdb_id] = parsed.pdb_text;
+      }
+      setCurrentPdbId(parsed.target?.pdb_id || '');
+      setCurrentTargetSymbol(parsed.target?.symbol || '');
     } catch {
       router.replace('/research');
     }
@@ -391,6 +401,23 @@ function ResultsContent() {
     (d) => d.drug_name === selected?.drug_name,
   );
 
+  // Fetch PDB text from RCSB/AlphaFold
+  const fetchPdb = useCallback(async (pdbId: string): Promise<string | null> => {
+    if (pdbCacheRef.current[pdbId]) return pdbCacheRef.current[pdbId];
+    const url = pdbId.startsWith('AF-')
+      ? `https://alphafold.ebi.ac.uk/files/${pdbId}-model_v4.pdb`
+      : `https://files.rcsb.org/download/${pdbId}.pdb`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const text = await res.text();
+      pdbCacheRef.current[pdbId] = text;
+      return text;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Update viewer ligand when selection changes
   const handleSelect = useCallback((idx: number) => {
     setSelectedIdx(idx);
@@ -398,7 +425,30 @@ function ResultsContent() {
     if (!candidate || !data) return;
     const docking = data.docking_data?.find((d) => d.drug_name === candidate.drug_name);
     ligandViewerRef.current?.setLigand(docking?.ligand_sdf || null);
-  }, [sorted, data]);
+
+    // Check if this drug was docked against a different protein target
+    const dockingFull = data.all_docking_results?.find(
+      (dr) => dr.drug_name === candidate.drug_name,
+    );
+    if (dockingFull?.pdb_id && dockingFull.pdb_id !== currentPdbId) {
+      const targetPdbId = dockingFull.pdb_id;
+      const targetSymbol = dockingFull.target_symbol;
+      const cached = pdbCacheRef.current[targetPdbId];
+      if (cached) {
+        viewerRef.current?.setProtein(cached);
+        setCurrentPdbId(targetPdbId);
+        setCurrentTargetSymbol(targetSymbol);
+      } else {
+        fetchPdb(targetPdbId).then((pdbText) => {
+          if (pdbText) {
+            viewerRef.current?.setProtein(pdbText);
+            setCurrentPdbId(targetPdbId);
+            setCurrentTargetSymbol(targetSymbol);
+          }
+        });
+      }
+    }
+  }, [sorted, data, currentPdbId, fetchPdb]);
 
   // Viewer controls
   const handleStyleChange = useCallback((style: ProteinStyle) => {
@@ -423,16 +473,49 @@ function ResultsContent() {
     }
   }, [data?.report]);
 
-  // Download report as text
-  const handleDownloadReport = useCallback(() => {
+  // Download report as PDF
+  const reportContentRef = useRef<HTMLDivElement>(null);
+  const handleDownloadReport = useCallback(async () => {
     if (!data?.report) return;
-    const blob = new Blob([data.report], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `repurpose-report-${data.disease.toLowerCase().replace(/\s+/g, '-')}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const html2pdf = (await import('html2pdf.js')).default;
+
+    // Clone the rendered report content for PDF styling
+    const source = reportContentRef.current;
+    const container = document.createElement('div');
+    container.style.cssText = 'font-family: system-ui, sans-serif; color: #1a1a1a; padding: 40px; max-width: 800px; line-height: 1.7;';
+
+    if (source) {
+      container.innerHTML = source.innerHTML;
+    } else {
+      // If report tab isn't active, render markdown as simple HTML
+      container.innerHTML = `<pre style="white-space: pre-wrap; font-family: system-ui, sans-serif;">${data.report}</pre>`;
+    }
+
+    // Style elements for print readability
+    container.querySelectorAll('*').forEach((el) => {
+      (el as HTMLElement).style.color = '#1a1a1a';
+    });
+    container.querySelectorAll('h1, h2, h3').forEach((el) => {
+      (el as HTMLElement).style.cssText = 'color: #111; margin-top: 1.5em; margin-bottom: 0.5em; font-weight: 600;';
+    });
+    container.querySelectorAll('table').forEach((el) => {
+      (el as HTMLElement).style.cssText = 'border-collapse: collapse; width: 100%; margin: 1em 0;';
+    });
+    container.querySelectorAll('th, td').forEach((el) => {
+      (el as HTMLElement).style.cssText = 'border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 13px; color: #1a1a1a;';
+    });
+    container.querySelectorAll('th').forEach((el) => {
+      (el as HTMLElement).style.backgroundColor = '#f5f5f5';
+    });
+
+    const filename = `repurpose-report-${data.disease.toLowerCase().replace(/\s+/g, '-')}.pdf`;
+    await html2pdf().set({
+      margin: [10, 12],
+      filename,
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    }).from(container).save();
   }, [data]);
 
   // Heatmap cell click
@@ -536,16 +619,7 @@ function ResultsContent() {
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
-              Export Report
-            </button>
-            <button
-              onClick={handleCopyReport}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/60 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-              </svg>
-              {copyFeedback ? 'Copied!' : 'Share'}
+              Export PDF
             </button>
           </div>
         </motion.nav>
@@ -565,7 +639,7 @@ function ResultsContent() {
               <div className="flex items-center justify-between">
                 <div className="flex items-baseline gap-2">
                   <h2 className="text-base font-light text-white/70">Candidates</h2>
-                  <span className="text-xs font-light text-white/35 tabular-nums">
+                  <span className="text-xs font-light text-white/55 tabular-nums">
                     {data.candidates.length}
                   </span>
                 </div>
@@ -577,7 +651,7 @@ function ResultsContent() {
                       key={mode}
                       onClick={() => setViewMode(mode)}
                       className={`relative px-2.5 py-1 rounded text-[11px] font-light capitalize tracking-wide transition-all duration-300 ${
-                        viewMode === mode ? 'text-white/70' : 'text-white/40 hover:text-white/55'
+                        viewMode === mode ? 'text-white/85' : 'text-white/60 hover:text-white/75'
                       }`}
                     >
                       {viewMode === mode && (
@@ -596,7 +670,7 @@ function ResultsContent() {
               {/* Sort row */}
               {viewMode === 'list' && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-light text-white/30 tracking-wide uppercase shrink-0">Sort</span>
+                  <span className="text-[11px] font-light text-white/55 tracking-wide uppercase shrink-0">Sort</span>
                   <div className="flex items-center gap-1 flex-wrap">
                     {([
                       { mode: 'combined' as SortMode, label: 'Score' },
@@ -611,8 +685,8 @@ function ResultsContent() {
                         onClick={() => { setSortMode(mode); setSelectedIdx(0); }}
                         className={`px-2 py-1 rounded text-[11px] font-light transition-all duration-300 ${
                           sortMode === mode
-                            ? 'bg-white/[0.08] text-white/65 border border-white/[0.1]'
-                            : 'text-white/35 hover:text-white/50 border border-transparent'
+                            ? 'bg-white/[0.08] text-white/80 border border-white/[0.1]'
+                            : 'text-white/55 hover:text-white/70 border border-transparent'
                         }`}
                       >
                         {label}
@@ -696,7 +770,7 @@ function ResultsContent() {
                           <div className="space-y-1.5">
                             {/* Binding bar — always blue */}
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Binding</span>
+                              <span className="text-[10px] font-light text-white/60 w-12 uppercase tracking-wider">Binding</span>
                               <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                 <motion.div
                                   className="h-full rounded-full bg-blue-500"
@@ -713,7 +787,7 @@ function ResultsContent() {
                             {/* Affinity bar — purple */}
                             {c.affinity_score != null && (
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Affinity</span>
+                                <span className="text-[10px] font-light text-white/60 w-12 uppercase tracking-wider">Affinity</span>
                                 <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                   <motion.div
                                     className="h-full rounded-full bg-purple-500"
@@ -731,7 +805,7 @@ function ResultsContent() {
                             {/* Safety bar — colored by score */}
                             {admet && (
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-light text-white/40 w-12 uppercase tracking-wider">Safety</span>
+                                <span className="text-[10px] font-light text-white/60 w-12 uppercase tracking-wider">Safety</span>
                                 <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                   <motion.div
                                     className={`h-full rounded-full ${scoreBg(admet.overall_score)}`}
@@ -749,7 +823,7 @@ function ResultsContent() {
 
                           {/* Row 3: Mechanism */}
                           {c.mechanism && (
-                            <p className="mt-2 text-xs font-light text-white/45 leading-relaxed line-clamp-1">
+                            <p className="mt-2 text-xs font-light text-white/60 leading-relaxed line-clamp-1">
                               {c.mechanism}
                             </p>
                           )}
@@ -800,7 +874,7 @@ function ResultsContent() {
 
                       {/* Left — ligand only */}
                       <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
-                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Ligand</p>
+                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/70 font-light mb-2 px-1">Ligand</p>
                         <DashboardViewer
                           ref={ligandViewerRef}
                           initialLigandSdf={selectedDocking?.ligand_sdf}
@@ -811,7 +885,9 @@ function ResultsContent() {
 
                       {/* Right — protein structure */}
                       <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
-                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Protein Structure</p>
+                        <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/70 font-light mb-2 px-1">
+                          Protein Structure{currentTargetSymbol ? ` — ${currentTargetSymbol}` : ''}{currentPdbId ? ` (${currentPdbId})` : ''}
+                        </p>
                         <div className="relative">
                           {data.pdb_text && (
                             <DashboardViewer
@@ -1109,7 +1185,7 @@ function ResultsContent() {
                         </p>
                         <MechanismFlow
                           drugName={selected.drug_name}
-                          targetSymbol={data.target.symbol}
+                          targetSymbol={currentTargetSymbol || data.target.symbol}
                           mechanism={selected.mechanism}
                           disease={data.disease}
                         />
@@ -1151,11 +1227,11 @@ function ResultsContent() {
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                             </svg>
-                            Download as Markdown
+                            Download as PDF
                           </button>
                         </div>
 
-                        <div className="prose prose-invert prose-sm max-w-none
+                        <div ref={reportContentRef} className="prose prose-invert prose-sm max-w-none
                           prose-headings:font-light prose-headings:text-white/70 prose-headings:tracking-wide
                           prose-p:text-white/50 prose-p:font-light prose-p:leading-relaxed
                           prose-strong:text-white/70 prose-strong:font-normal

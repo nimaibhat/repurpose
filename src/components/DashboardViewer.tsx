@@ -6,6 +6,7 @@ export type ProteinStyle = 'cartoon' | 'surface' | 'ballstick' | 'hidden';
 
 export interface DashboardViewerHandle {
   setLigand: (sdf: string | null) => void;
+  setProtein: (pdbText: string) => void;
   setProteinStyle: (style: ProteinStyle) => void;
   setLigandVisible: (visible: boolean) => void;
   resetView: () => void;
@@ -113,6 +114,34 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
       viewer.render();
     }, [styleLigand, applyProteinStyle]);
 
+    const setProtein = useCallback((newPdbText: string) => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+
+      viewer.removeAllModels();
+      viewer.removeAllSurfaces();
+      surfaceRef.current = null;
+      proteinModelRef.current = null;
+      ligandModelRef.current = null;
+
+      pdbTextRef.current = newPdbText;
+
+      proteinModelRef.current = viewer.addModel(newPdbText, 'pdb');
+      applyProteinStyle(proteinStyleRef.current);
+
+      // Re-add current ligand if present
+      if (currentLigandSdf.current && ligandVisibleRef.current) {
+        const model = viewer.addModel(currentLigandSdf.current, 'sdf');
+        styleLigand(model);
+        ligandModelRef.current = model;
+        viewer.zoomTo({ model }, 800);
+      } else {
+        viewer.zoomTo({ model: proteinModelRef.current });
+      }
+
+      viewer.render();
+    }, [applyProteinStyle, styleLigand]);
+
     const setLigandVisible = useCallback((visible: boolean) => {
       const viewer = viewerRef.current;
       ligandVisibleRef.current = visible;
@@ -177,10 +206,11 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
 
     useImperativeHandle(ref, () => ({
       setLigand,
+      setProtein,
       setProteinStyle,
       setLigandVisible,
       resetView,
-    }), [setLigand, setProteinStyle, setLigandVisible, resetView]);
+    }), [setLigand, setProtein, setProteinStyle, setLigandVisible, resetView]);
 
     // Cursor-centric wheel zoom — intercept in capture phase before 3Dmol's listener
     useEffect(() => {
