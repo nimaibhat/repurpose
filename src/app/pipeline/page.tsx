@@ -307,6 +307,7 @@ function PipelineContent() {
   const [pdbText, setPdbText] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [selectedDocking, setSelectedDocking] = useState(0);
+  const [dockingTransitioning, setDockingTransitioning] = useState(false);
   const [subMsgIndex, setSubMsgIndex] = useState(0);
 
   const hasStarted = useRef(false);
@@ -730,8 +731,8 @@ function PipelineContent() {
                     </div>
                     {structuresData.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-3">
-                        {structuresData.map((s) => (
-                          <span key={s.pdb_id} className="text-xs font-light text-white/45 tracking-wide">
+                        {structuresData.map((s, i) => (
+                          <span key={`${s.symbol}-${s.pdb_id}-${i}`} className="text-xs font-light text-white/45 tracking-wide">
                             {s.symbol}: {s.pdb_id}
                             {s.resolution && ` (${s.resolution}\u00C5)`}
                             {` \u2022 ${s.source}`}
@@ -790,7 +791,14 @@ function PipelineContent() {
                         {dockingViewData.slice(0, 8).map((d, i) => (
                           <button
                             key={i}
-                            onClick={() => setSelectedDocking(i)}
+                            onClick={() => {
+                              if (i === selectedDocking) return;
+                              setDockingTransitioning(true);
+                              setTimeout(() => {
+                                setSelectedDocking(i);
+                                setDockingTransitioning(false);
+                              }, 220);
+                            }}
                             className={`px-3.5 py-2 rounded-md text-xs font-light transition-all duration-300 ${
                               selectedDocking === i
                                 ? 'border border-blue-500/25 bg-blue-500/[0.08] text-blue-400/80'
@@ -802,13 +810,24 @@ function PipelineContent() {
                         ))}
                       </div>
                     )}
-                    <div className="w-full aspect-[3/2]">
+                    <div className="w-full aspect-[3/2] relative">
                       <MolViewer
-                        proteinPdb={pdbText}
                         ligandSdf={dockingViewData[selectedDocking]?.ligand_sdf}
-                        proteinStyle="surface"
                         autoRotate
                       />
+                      <AnimatePresence>
+                        {dockingTransitioning && (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute inset-0 rounded-xl bg-black/60 flex items-center justify-center"
+                          >
+                            <div className="w-5 h-5 rounded-full border border-white/10 border-t-white/50 animate-spin" />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </motion.div>
                 )}

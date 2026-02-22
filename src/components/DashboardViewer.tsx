@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 
-export type ProteinStyle = 'cartoon' | 'surface' | 'ballstick';
+export type ProteinStyle = 'cartoon' | 'surface' | 'ballstick' | 'hidden';
 
 export interface DashboardViewerHandle {
   setLigand: (sdf: string | null) => void;
@@ -12,7 +12,7 @@ export interface DashboardViewerHandle {
 }
 
 interface DashboardViewerProps {
-  pdbText: string;
+  pdbText?: string;
   initialLigandSdf?: string;
   initialProteinStyle?: ProteinStyle;
   height?: number | string;
@@ -62,6 +62,9 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
             sphere: { scale: 0.25, colorscheme: 'Jmol' },
           });
           break;
+        case 'hidden':
+          viewer.setStyle(sel, {});
+          break;
       }
 
       proteinStyleRef.current = style;
@@ -92,8 +95,10 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         styleLigand(model);
         ligandModelRef.current = model;
         viewer.zoomTo({ model: model }, 1000);
-      } else {
+      } else if (proteinModelRef.current) {
         viewer.zoomTo({ model: proteinModelRef.current });
+      } else {
+        viewer.zoomTo();
       }
 
       viewer.render();
@@ -208,7 +213,7 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
 
     // Initialize viewer once
     useEffect(() => {
-      if (!containerRef.current || !pdbText || readyRef.current) return;
+      if (!containerRef.current || (!pdbText && !initialLigandSdf) || readyRef.current) return;
 
       let mounted = true;
 
@@ -223,8 +228,10 @@ const DashboardViewer = forwardRef<DashboardViewerHandle, DashboardViewerProps>(
         });
         viewerRef.current = viewer;
 
-        proteinModelRef.current = viewer.addModel(pdbText, 'pdb');
-        applyProteinStyle(proteinStyleRef.current);
+        if (pdbText) {
+          proteinModelRef.current = viewer.addModel(pdbText, 'pdb');
+          applyProteinStyle(proteinStyleRef.current);
+        }
 
         if (initialLigandSdf) {
           const ligand = viewer.addModel(initialLigandSdf, 'sdf');
