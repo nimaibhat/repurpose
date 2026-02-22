@@ -1,5 +1,7 @@
 # Repurpose
 
+**Team Buck** — Nimai Bhat, Samay Patel, Praketh Potlapalli, Harsha Kalivarapu
+
 An AI-powered drug repurposing platform that identifies existing drugs that could be repositioned to treat diseases. Given a disease name, the pipeline automatically finds protein targets, retrieves 3D structures, searches for approved drugs, runs molecular docking simulations, predicts binding affinity and safety profiles, and generates AI-powered analysis reports — all streamed to the UI in real time.
 
 ## How It Works
