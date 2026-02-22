@@ -8,7 +8,7 @@ class PipelineRequest(BaseModel):
     target_symbol: str | None = None
     drug_name: str | None = None
     max_targets: int = 5
-    max_candidates: int = 25
+    max_candidates: int = 25  # 0 = unlimited
 
 
 # --- Targets ---
