@@ -20,6 +20,10 @@ Candidates are ranked by a combined score: binding confidence (40%) + affinity (
 
 Results stream to the frontend via Server-Sent Events (SSE), so each step renders as it completes.
 
+## Architecture
+
+![Architecture Map](ArchitectureMap.png)
+
 ## Tech Stack
 
 | Layer | Technology |
