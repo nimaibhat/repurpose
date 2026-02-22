@@ -263,14 +263,10 @@ function MechanismFlow({
 function ViewerControls({
   proteinStyle,
   onStyleChange,
-  ligandVisible,
-  onToggleLigand,
   onReset,
 }: {
   proteinStyle: ProteinStyle;
   onStyleChange: (s: ProteinStyle) => void;
-  ligandVisible: boolean;
-  onToggleLigand: () => void;
   onReset: () => void;
 }) {
   const styles: { value: ProteinStyle; label: string }[] = [
@@ -296,17 +292,6 @@ function ViewerControls({
       ))}
 
       <div className="w-px h-4 bg-white/[0.06] mx-1" />
-
-      <button
-        onClick={onToggleLigand}
-        className={`px-3.5 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 ${
-          ligandVisible
-            ? 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-400/70'
-            : 'border-white/[0.06] bg-white/[0.02] text-white/50 hover:text-white/50'
-        }`}
-      >
-        {ligandVisible ? 'Hide Ligand' : 'Show Ligand'}
-      </button>
 
       <button
         onClick={onReset}
@@ -359,11 +344,11 @@ function TabBar({ active, onChange }: { active: DetailTab; onChange: (t: DetailT
 function ResultsContent() {
   const router = useRouter();
   const viewerRef = useRef<DashboardViewerHandle>(null);
+  const ligandViewerRef = useRef<DashboardViewerHandle>(null);
   const [data, setData] = useState<ResultsData | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [sortMode, setSortMode] = useState<SortMode>('combined');
-  const [proteinStyle, setProteinStyle] = useState<ProteinStyle>('cartoon');
-  const [ligandVisible, setLigandVisible] = useState(true);
+  const [proteinStyle, setProteinStyle] = useState<ProteinStyle>('hidden');
   const [activeTab, setActiveTab] = useState<DetailTab>('explanation');
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -403,6 +388,7 @@ function ResultsContent() {
     if (!candidate || !data) return;
     const docking = data.docking_data?.find((d) => d.drug_name === candidate.drug_name);
     viewerRef.current?.setLigand(docking?.ligand_sdf || null);
+    ligandViewerRef.current?.setLigand(docking?.ligand_sdf || null);
   }, [sorted, data]);
 
   // Viewer controls
@@ -411,11 +397,6 @@ function ResultsContent() {
     viewerRef.current?.setProteinStyle(style);
   }, []);
 
-  const handleToggleLigand = useCallback(() => {
-    const next = !ligandVisible;
-    setLigandVisible(next);
-    viewerRef.current?.setLigandVisible(next);
-  }, [ligandVisible]);
 
   const handleReset = useCallback(() => {
     viewerRef.current?.resetView();
@@ -513,13 +494,13 @@ function ResultsContent() {
           transition={{ duration: 0.5, ease }}
         >
           <button
-            onClick={() => router.push('/research')}
+            onClick={() => router.back()}
             className="flex items-center gap-2 text-sm font-light tracking-[0.15em] uppercase text-white/55 hover:text-white/60 transition-colors duration-300"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            New Search
+            Back
           </button>
 
           <div className="flex items-center gap-2">
@@ -530,6 +511,15 @@ function ResultsContent() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push('/research')}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/50 hover:text-white/70 hover:border-white/[0.14] transition-all duration-300"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+              </svg>
+              New Search
+            </button>
             <button
               onClick={handleDownloadReport}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/[0.08] bg-white/[0.03] text-xs font-light tracking-wide text-white/60 hover:text-white/60 hover:border-white/[0.15] transition-all duration-300"
@@ -764,67 +754,76 @@ function ResultsContent() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.1, ease }}
           >
-            {/* Section 1: 3D Viewer */}
+            {/* Section 1: Split 3D Viewer */}
             <div className="shrink-0 p-5 pb-3">
-              <div
-                className="rounded-2xl border border-white/[0.06] p-4 backdrop-blur-sm"
-                style={glassStyle}
-              >
-                <div className="relative">
-                  {data.pdb_text && (
-                    <DashboardViewer
-                      ref={viewerRef}
-                      pdbText={data.pdb_text}
-                      initialLigandSdf={selectedDocking?.ligand_sdf}
-                      initialProteinStyle={proteinStyle}
-                      height="min(45vh, 400px)"
-                    />
-                  )}
+              <div className="flex gap-3">
 
-                  {/* Confidence overlay badge */}
-                  {selected && (
-                    <div className="absolute top-3 right-3 flex items-center gap-3 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-light text-white/55 tracking-wide uppercase">Binding</span>
-                        <span className={`text-lg font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}>
-                          {selected.confidence_score.toFixed(2)}
-                        </span>
-                      </div>
-                      {selected.predicted_kd_nm != null && (
-                        <>
-                          <div className="w-px h-5 bg-white/[0.1]" />
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-light text-purple-400/70 tracking-wide uppercase">Affinity</span>
-                            <span className="text-lg font-light tabular-nums text-purple-400">
-                              {formatKd(selected.predicted_kd_nm)}
-                            </span>
-                          </div>
-                        </>
-                      )}
-                      {selected.admet && (
-                        <>
-                          <div className="w-px h-5 bg-white/[0.1]" />
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-light text-white/55 tracking-wide uppercase">Safety</span>
-                            <span className={`text-lg font-light tabular-nums ${scoreLargeTextClass(selected.admet.overall_score)}`}>
-                              {selected.admet.overall_score.toFixed(2)}
-                            </span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-3">
-                  <ViewerControls
-                    proteinStyle={proteinStyle}
-                    onStyleChange={handleStyleChange}
-                    ligandVisible={ligandVisible}
-                    onToggleLigand={handleToggleLigand}
-                    onReset={handleReset}
+                {/* Left — ligand only */}
+                <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
+                  <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Ligand</p>
+                  <DashboardViewer
+                    ref={ligandViewerRef}
+                    initialLigandSdf={selectedDocking?.ligand_sdf}
+                    initialProteinStyle="hidden"
+                    height="min(38vh, 340px)"
                   />
                 </div>
+
+                {/* Right — protein structure */}
+                <div className="flex-1 rounded-2xl border border-white/[0.06] p-3 backdrop-blur-sm overflow-hidden" style={glassStyle}>
+                  <p className="text-[0.55rem] tracking-[0.15em] uppercase text-white/20 font-light mb-2 px-1">Protein Structure</p>
+                  <div className="relative">
+                    {data.pdb_text && (
+                      <DashboardViewer
+                        ref={viewerRef}
+                        pdbText={data.pdb_text}
+                        initialProteinStyle={proteinStyle}
+                        height="min(38vh, 340px)"
+                      />
+                    )}
+                    {/* Confidence badge */}
+                    {selected && (
+                      <div className="absolute top-2 right-2 flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/[0.08]">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Binding</span>
+                          <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.confidence_score)}`}>
+                            {selected.confidence_score.toFixed(2)}
+                          </span>
+                        </div>
+                        {selected.predicted_kd_nm != null && (
+                          <>
+                            <div className="w-px h-4 bg-white/[0.1]" />
+                            <div className="flex items-center gap-1">
+                              <span className="text-[0.55rem] font-light text-purple-400/60 tracking-wide uppercase">Affinity</span>
+                              <span className="text-base font-light tabular-nums text-purple-400">
+                                {formatKd(selected.predicted_kd_nm)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        {selected.admet && (
+                          <>
+                            <div className="w-px h-4 bg-white/[0.1]" />
+                            <div className="flex items-center gap-1">
+                              <span className="text-[0.55rem] font-light text-white/45 tracking-wide uppercase">Safety</span>
+                              <span className={`text-base font-light tabular-nums ${scoreLargeTextClass(selected.admet.overall_score)}`}>
+                                {selected.admet.overall_score.toFixed(2)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-2">
+                    <ViewerControls
+                      proteinStyle={proteinStyle}
+                      onStyleChange={handleStyleChange}
+                      onReset={handleReset}
+                    />
+                  </div>
+                </div>
+
               </div>
             </div>
 

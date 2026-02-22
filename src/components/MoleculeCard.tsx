@@ -62,23 +62,23 @@ export default function MoleculeCard({
   rank,
   mechanism,
 }: MoleculeCardProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const svgRef = useRef<HTMLDivElement>(null);
   const [parseError, setParseError] = useState(false);
 
   const { canvasW, canvasH } = sizeConfig[size];
 
-  // ── SmilesDrawer rendering ──
+  // ── SmilesDrawer rendering (SvgDrawer avoids the Drawer.draw parameter bug in v2) ──
   useEffect(() => {
-    if (!canvasRef.current || !smiles) return;
+    if (!svgRef.current || !smiles) return;
     setParseError(false);
 
     let mounted = true;
 
     (async () => {
       const SmilesDrawer = (await import('smiles-drawer')).default;
-      if (!mounted || !canvasRef.current) return;
+      if (!mounted || !svgRef.current) return;
 
-      const drawer = new SmilesDrawer.Drawer({
+      const drawer = new SmilesDrawer.SvgDrawer({
         width: canvasW,
         height: canvasH,
         bondThickness: 1.2,
@@ -116,8 +116,22 @@ export default function MoleculeCard({
       SmilesDrawer.parse(
         smiles,
         (tree: any) => {
-          if (!mounted || !canvasRef.current) return;
-          drawer.draw(tree, canvasRef.current, 'dark');
+          if (!mounted || !svgRef.current) return;
+          svgRef.current.innerHTML = '';
+          drawer.draw(tree, 'svg', 'dark', false);
+          const svg = svgRef.current.querySelector('svg') || drawer.svgDrawer?.svgWrapper?.svg;
+          if (svg) {
+            svgRef.current.innerHTML = '';
+            svgRef.current.appendChild(svg);
+          } else {
+            // fallback: let SvgDrawer write directly to a target id
+            const id = `smiles-${Math.random().toString(36).slice(2)}`;
+            const el = document.createElement('svg');
+            el.id = id;
+            svgRef.current.innerHTML = '';
+            svgRef.current.appendChild(el);
+            drawer.draw(tree, id, 'dark', false);
+          }
         },
         () => {
           if (mounted) setParseError(true);
@@ -128,7 +142,7 @@ export default function MoleculeCard({
     return () => { mounted = false; };
   }, [smiles, canvasW, canvasH]);
 
-  // ── Canvas / fallback element ──
+  // ── SVG / fallback element ──
   const canvasEl = parseError ? (
     <div
       className="flex items-center justify-center rounded-lg bg-white/[0.02]"
@@ -139,12 +153,10 @@ export default function MoleculeCard({
       </span>
     </div>
   ) : (
-    <canvas
-      ref={canvasRef}
-      width={canvasW}
-      height={canvasH}
+    <div
+      ref={svgRef}
       className="rounded-lg"
-      style={{ width: canvasW, height: canvasH }}
+      style={{ width: canvasW, height: canvasH, overflow: 'hidden' }}
     />
   );
 

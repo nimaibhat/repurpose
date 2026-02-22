@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import pipeline, targets, structures, drugs, docking, report, admet
+from routes import pipeline, pipeline_protein, targets, structures, drugs, docking, report, admet
 from config import get_settings
 
 settings = get_settings()
@@ -32,6 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(pipeline_protein.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(targets.router, prefix="/api")
 app.include_router(structures.router, prefix="/api")

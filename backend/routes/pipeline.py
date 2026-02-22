@@ -126,9 +126,9 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
         if key not in seen_drug_names:
             seen_drug_names.add(key)
             capped_drugs.append(d)
-    if len(capped_drugs) > request.max_candidates:
+    if request.max_candidates > 0 and len(capped_drugs) > request.max_candidates:
         capped_drugs = capped_drugs[:request.max_candidates]
-    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates})")
+    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates or 'unlimited'})")
 
     # Step 5: Run docking simulations
     settings = get_settings()
@@ -160,6 +160,7 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
                 api_key=settings.nvidia_nim_api_key,
                 pdb_text=pdb_text,
                 drugs=target_drugs,
+                pdb_id=pdb_id,
             )
 
             # Add structure info to each result
@@ -399,9 +400,9 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
         if key not in seen_drug_names:
             seen_drug_names.add(key)
             capped_drugs.append(d)
-    if len(capped_drugs) > request.max_candidates:
+    if request.max_candidates > 0 and len(capped_drugs) > request.max_candidates:
         capped_drugs = capped_drugs[:request.max_candidates]
-    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates})")
+    print(f"Capped drugs from {len(all_drugs)} to {len(capped_drugs)} (max_candidates={request.max_candidates or 'unlimited'})")
 
     # Step 4: Docking
     yield _sse_event("step", {"step": 4, "status": "running"})
@@ -427,6 +428,7 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
                 api_key=settings.nvidia_nim_api_key,
                 pdb_text=pdb_text,
                 drugs=target_drugs,
+                pdb_id=pdb_id,
             )
             for result in docking_results:
                 result["pdb_id"] = pdb_id

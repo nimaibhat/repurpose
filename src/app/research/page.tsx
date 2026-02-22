@@ -35,12 +35,6 @@ const PROTEIN_TARGETS = [
   'ALK', 'PIK3CA', 'PTEN', 'RB1', 'MYC',
 ];
 
-const DRUG_SUGGESTIONS = [
-  'Imatinib', 'Sorafenib', 'Metformin', 'Thalidomide', 'Celecoxib',
-  'Disulfiram', 'Chloroquine', 'Ivermectin', 'Niclosamide', 'Auranofin',
-  'Mebendazole', 'Statins', 'Aspirin', 'Valproic Acid', 'Rapamycin',
-];
-
 const LOADING_STEPS = [
   'Discovering protein targets...',
   'Fetching 3D protein structure...',
@@ -49,7 +43,7 @@ const LOADING_STEPS = [
   'Generating analysis report...',
 ];
 
-type FocusMode = 'explore' | 'target' | 'drug';
+type FocusMode = 'explore' | 'target';
 type Status = 'idle' | 'loading' | 'done' | 'error';
 
 interface DockingResult {
@@ -173,15 +167,6 @@ function TargetIcon({ className }: { className?: string }) {
       <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" fill="currentColor" />
       <line x1="12" y1="2" x2="12" y2="5" /><line x1="12" y1="19" x2="12" y2="22" />
       <line x1="2" y1="12" x2="5" y2="12" /><line x1="19" y1="12" x2="22" y2="12" />
-    </svg>
-  );
-}
-
-function PillIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4.745 19.255a4.5 4.5 0 010-6.364l9.192-9.192a4.5 4.5 0 116.364 6.364l-9.192 9.192a4.5 4.5 0 01-6.364 0z" />
-      <line x1="8.5" y1="8.5" x2="15.5" y2="15.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -371,9 +356,7 @@ export default function ResearchPage() {
   const [cancerType, setCancerType] = useState('');
   const [focusMode, setFocusMode] = useState<FocusMode>('explore');
   const [proteinTarget, setProteinTarget] = useState('');
-  const [drugName, setDrugName] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [admetStrict, setAdmetStrict] = useState(true);
   const [maxTargets, setMaxTargets] = useState(5);
   const [maxCandidates, setMaxCandidates] = useState(25);
 
@@ -400,6 +383,18 @@ export default function ResearchPage() {
   }, []);
 
   const handleRunAnalysis = () => {
+    // Target-Specific mode: route to the protein-first pipeline
+    if (focusMode === 'target') {
+      if (!proteinTarget) return;
+      const params = new URLSearchParams({
+        target_symbol: proteinTarget,
+        max_candidates: String(maxCandidates),
+      });
+      router.push(`/pipeline/protein?${params.toString()}`);
+      return;
+    }
+
+    // Explore / Drug-Specific modes: route to the standard disease pipeline
     if (!cancerType) return;
     const params = new URLSearchParams({
       disease: cancerType,
@@ -407,12 +402,6 @@ export default function ResearchPage() {
       max_targets: String(maxTargets),
       max_candidates: String(maxCandidates),
     });
-    if (focusMode === 'target' && proteinTarget) {
-      params.set('target_symbol', proteinTarget);
-    }
-    if (focusMode === 'drug' && drugName) {
-      params.set('drug_name', drugName);
-    }
     router.push(`/pipeline?${params.toString()}`);
   };
 
@@ -476,7 +465,6 @@ export default function ResearchPage() {
                   <div className="flex gap-2.5">
                     <FocusModeCard icon={ExploreIcon} label="Explore" subtitle="All repurposing candidates" selected={focusMode === 'explore'} onClick={() => setFocusMode('explore')} />
                     <FocusModeCard icon={TargetIcon} label="Target-Specific" subtitle="Test against a protein" selected={focusMode === 'target'} onClick={() => setFocusMode('target')} />
-                    <FocusModeCard icon={PillIcon} label="Drug-Specific" subtitle="Test a drug on all targets" selected={focusMode === 'drug'} onClick={() => setFocusMode('drug')} />
                   </div>
                 </motion.div>
 
@@ -501,14 +489,6 @@ export default function ResearchPage() {
                       </div>
                     </motion.div>
                   )}
-                  {focusMode === 'drug' && (
-                    <motion.div key="drug-input" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}>
-                      <div className="mt-5">
-                        <p className="text-[0.65rem] font-light tracking-[0.15em] uppercase text-white/25 mb-2.5">Drug Name</p>
-                        <SearchDropdown options={DRUG_SUGGESTIONS} value={drugName} onChange={setDrugName} placeholder="Enter drug name..." allowFreeText />
-                      </div>
-                    </motion.div>
-                  )}
                 </AnimatePresence>
 
                 {/* Advanced Settings */}
@@ -522,30 +502,80 @@ export default function ResearchPage() {
                   <AnimatePresence>
                     {advancedOpen && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }} className="overflow-hidden">
-                        <div className="mt-4 space-y-5 pl-1">
+                        <div className="mt-4 space-y-6 pl-1">
+
+                          {/* Max Targets */}
                           <div>
-                            <p className="text-[0.6rem] font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">ADMET Strictness</p>
-                            <div className="flex gap-2">
-                              {(['Strict', 'Relaxed'] as const).map((opt) => {
-                                const isActive = opt === 'Strict' ? admetStrict : !admetStrict;
-                                return (
-                                  <button key={opt} className={`px-4 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 cursor-pointer ${isActive ? 'border-white/15 bg-white/[0.06] text-white/70' : 'border-white/[0.05] bg-transparent text-white/25 hover:text-white/40 hover:border-white/[0.1]'}`} onClick={() => setAdmetStrict(opt === 'Strict')}>
-                                    {opt}
-                                  </button>
-                                );
-                              })}
+                            <div className="flex items-center justify-between mb-2.5">
+                              <p className="text-[0.6rem] font-light tracking-[0.12em] uppercase text-white/20">Max Targets</p>
+                              <input
+                                type="number"
+                                min={1}
+                                max={200}
+                                value={maxTargets}
+                                onChange={(e) => setMaxTargets(Math.min(200, Math.max(1, parseInt(e.target.value) || 1)))}
+                                className="w-14 px-2 py-1 rounded-md border border-white/[0.08] bg-white/[0.03] text-xs font-mono text-white/60 text-center focus:outline-none focus:border-white/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
+                            <input
+                              type="range"
+                              min={1}
+                              max={200}
+                              value={maxTargets}
+                              onChange={(e) => setMaxTargets(parseInt(e.target.value))}
+                              className="w-full h-0.5 appearance-none rounded-full cursor-pointer accent-blue-500"
+                              style={{ background: `linear-gradient(to right, rgba(59,130,246,0.5) ${(maxTargets - 1) / 199 * 100}%, rgba(255,255,255,0.08) ${(maxTargets - 1) / 199 * 100}%)` }}
+                            />
+                            <div className="flex justify-between mt-1">
+                              <span className="text-[0.5rem] text-white/15 font-mono">1</span>
+                              <span className="text-[0.5rem] text-white/15 font-mono">200</span>
                             </div>
                           </div>
+
+                          {/* Max Candidates */}
                           <div>
-                            <p className="text-[0.6rem] font-light tracking-[0.12em] uppercase text-white/20 mb-2.5">Max Candidates to Dock</p>
-                            <div className="flex gap-2">
-                              {[10, 25, 50].map((n) => (
-                                <button key={n} className={`px-4 py-2 rounded-lg text-xs font-light tracking-wide border transition-all duration-300 cursor-pointer ${maxCandidates === n ? 'border-white/15 bg-white/[0.06] text-white/70' : 'border-white/[0.05] bg-transparent text-white/25 hover:text-white/40 hover:border-white/[0.1]'}`} onClick={() => setMaxCandidates(n)}>
-                                  {n}
+                            <div className="flex items-center justify-between mb-2.5">
+                              <p className="text-[0.6rem] font-light tracking-[0.12em] uppercase text-white/20">Max Candidates to Dock</p>
+                              <div className="flex items-center gap-2">
+                                {maxCandidates !== 0 && (
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={maxCandidates}
+                                    onChange={(e) => setMaxCandidates(Math.max(1, parseInt(e.target.value) || 1))}
+                                    className="w-14 px-2 py-1 rounded-md border border-white/[0.08] bg-white/[0.03] text-xs font-mono text-white/60 text-center focus:outline-none focus:border-white/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                )}
+                                <button
+                                  onClick={() => setMaxCandidates(maxCandidates === 0 ? 25 : 0)}
+                                  className={`px-3 py-1 rounded-md text-[0.6rem] font-light tracking-wide border transition-all duration-300 cursor-pointer ${maxCandidates === 0 ? 'border-blue-500/25 bg-blue-500/[0.08] text-blue-400/70' : 'border-white/[0.05] text-white/25 hover:text-white/40 hover:border-white/[0.1]'}`}
+                                >
+                                  Any
                                 </button>
-                              ))}
+                              </div>
                             </div>
+                            {maxCandidates !== 0 && (
+                              <>
+                                <input
+                                  type="range"
+                                  min={1}
+                                  max={100}
+                                  value={Math.min(maxCandidates, 100)}
+                                  onChange={(e) => setMaxCandidates(parseInt(e.target.value))}
+                                  className="w-full h-0.5 appearance-none rounded-full cursor-pointer accent-blue-500"
+                                  style={{ background: `linear-gradient(to right, rgba(59,130,246,0.5) ${(Math.min(maxCandidates, 100) - 1) / 99 * 100}%, rgba(255,255,255,0.08) ${(Math.min(maxCandidates, 100) - 1) / 99 * 100}%)` }}
+                                />
+                                <div className="flex justify-between mt-1">
+                                  <span className="text-[0.5rem] text-white/15 font-mono">1</span>
+                                  <span className="text-[0.5rem] text-white/15 font-mono">100+</span>
+                                </div>
+                              </>
+                            )}
+                            {maxCandidates === 0 && (
+                              <p className="text-[0.6rem] text-white/20 font-light mt-1">All available candidates will be docked</p>
+                            )}
                           </div>
+
                         </div>
                       </motion.div>
                     )}
@@ -561,22 +591,22 @@ export default function ResearchPage() {
                 >
                   <motion.button
                     className={`relative w-full py-4 rounded-xl text-base font-light tracking-[0.15em] uppercase overflow-hidden border ${
-                      cancerType
+                      (focusMode === 'target' ? !!proteinTarget : !!cancerType)
                         ? 'text-white/90 cursor-pointer border-blue-500/20 bg-blue-500/[0.08]'
                         : 'text-white/45 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
                     }`}
-                    whileHover={cancerType ? { scale: 1.005 } : undefined}
-                    whileTap={cancerType ? { scale: 0.995 } : undefined}
+                    whileHover={(focusMode === 'target' ? !!proteinTarget : !!cancerType) ? { scale: 1.005 } : undefined}
+                    whileTap={(focusMode === 'target' ? !!proteinTarget : !!cancerType) ? { scale: 0.995 } : undefined}
                     style={
-                      cancerType
+                      (focusMode === 'target' ? !!proteinTarget : !!cancerType)
                         ? { boxShadow: '0 0 30px rgba(59, 130, 246, 0.12), 0 0 60px rgba(59, 130, 246, 0.05)' }
                         : undefined
                     }
                     onClick={handleRunAnalysis}
-                    disabled={!cancerType}
+                    disabled={!(focusMode === 'target' ? !!proteinTarget : !!cancerType)}
                   >
                     <span className="relative z-10">Run Analysis</span>
-                    {cancerType && (
+                    {(focusMode === 'target' ? !!proteinTarget : !!cancerType) && (
                       <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-blue-500/15 to-blue-600/10" />
                     )}
                   </motion.button>

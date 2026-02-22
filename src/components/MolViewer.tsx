@@ -3,7 +3,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 
 interface MolViewerProps {
-  proteinPdb: string;
+  proteinPdb?: string;
   ligandSdf?: string;
   width?: string;
   height?: string;
@@ -45,7 +45,7 @@ export default function MolViewer({
 
       switch (style) {
         case 'cartoon':
-          viewer.setStyle({ model: 0 }, { cartoon: { color: 'spectrum' } });
+          viewer.setStyle({ model: 0 }, { cartoon: { color: 'spectrum', opacity: 0.72 } });
           break;
         case 'surface':
           viewer.setStyle({ model: 0 }, {
@@ -71,9 +71,9 @@ export default function MolViewer({
     [],
   );
 
-  // ── Initialize viewer ONCE when proteinPdb becomes available ──
+  // ── Initialize viewer ONCE when proteinPdb (or ligandSdf-only) becomes available ──
   useEffect(() => {
-    if (!containerRef.current || !proteinPdb) return;
+    if (!containerRef.current || (!proteinPdb && !ligandSdf)) return;
 
     // Clean up any previous viewer before creating a new one
     if (viewerRef.current) {
@@ -101,20 +101,27 @@ export default function MolViewer({
       });
       viewerRef.current = viewer;
 
-      // Protein model — always model index 0
-      viewer.addModel(proteinPdb, 'pdb');
-      applyProteinStyle(viewer, $3Dmol, proteinStyle, showSurface);
+      // Protein model (optional)
+      if (proteinPdb) {
+        viewer.addModel(proteinPdb, 'pdb');
+        applyProteinStyle(viewer, $3Dmol, proteinStyle, showSurface);
+      }
 
       // Initial ligand, if present
       if (ligandSdf) {
         const model = viewer.addModel(ligandSdf, 'sdf');
         model.setStyle({}, {
           stick: { colorscheme: 'greenCarbon', radius: 0.15 },
+          sphere: { colorscheme: 'greenCarbon', scale: 0.25 },
         });
         ligandModelRef.current = model;
       }
 
-      viewer.zoomTo();
+      if (ligandModelRef.current) {
+        viewer.zoomTo({ model: ligandModelRef.current });
+      } else {
+        viewer.zoomTo();
+      }
       viewer.render();
 
       if (autoRotate) {
@@ -149,11 +156,16 @@ export default function MolViewer({
       const model = viewer.addModel(ligandSdf, 'sdf');
       model.setStyle({}, {
         stick: { colorscheme: 'greenCarbon', radius: 0.15 },
+        sphere: { colorscheme: 'greenCarbon', scale: 0.25 },
       });
       ligandModelRef.current = model;
     }
 
-    viewer.zoomTo();
+    if (ligandModelRef.current) {
+      viewer.zoomTo({ model: ligandModelRef.current });
+    } else {
+      viewer.zoomTo();
+    }
     viewer.render();
   }, [ligandSdf]);
 
@@ -175,6 +187,15 @@ export default function MolViewer({
     viewer.render();
   }, [proteinStyle, showSurface, applyProteinStyle]);
 
+  // ── Block scroll zoom ──
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const block = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
+    container.addEventListener('wheel', block, { passive: false, capture: true });
+    return () => container.removeEventListener('wheel', block, { capture: true });
+  }, []);
+
   // ── React to autoRotate changes ──
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -188,7 +209,7 @@ export default function MolViewer({
   }, [autoRotate]);
 
   // ── Loading placeholder ──
-  if (!proteinPdb) {
+  if (!proteinPdb && !ligandSdf) {
     return (
       <div
         className="rounded-xl border border-white/[0.06] bg-black/40 flex items-center justify-center"
