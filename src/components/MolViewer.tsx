@@ -175,6 +175,15 @@ export default function MolViewer({
     viewer.render();
   }, [proteinStyle, showSurface, applyProteinStyle]);
 
+  // ── Block scroll zoom ──
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const block = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
+    container.addEventListener('wheel', block, { passive: false, capture: true });
+    return () => container.removeEventListener('wheel', block, { capture: true });
+  }, []);
+
   // ── React to autoRotate changes ──
   useEffect(() => {
     const viewer = viewerRef.current;
