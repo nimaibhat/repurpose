@@ -419,9 +419,6 @@ export default function ResearchPage() {
       {/* Navbar */}
       <nav className="relative z-10 flex items-center justify-between px-8 py-5">
         <span className="text-[0.8rem] font-extralight tracking-[0.35em] uppercase text-white/60">repurpose</span>
-        <button className="text-[0.65rem] font-extralight tracking-[0.2em] uppercase text-white/30 hover:text-white/60 transition-colors duration-300">
-          How it works
-        </button>
       </nav>
 
       {/* Content */}
