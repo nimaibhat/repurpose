@@ -65,7 +65,7 @@ def _build_user_prompt(disease: str, target: dict, results: list[dict]) -> str:
             novelty_line = f"   - Novelty: {novelty_status} — {novelty_detail}\n"
 
         has_affinity = affinity_score is not None
-        score_formula = "binding 35% + affinity 30% + safety 35%" if has_affinity else "binding 60% + safety 40%"
+        score_formula = "binding 40% + affinity 15% + safety 45%" if has_affinity else "binding 55% + safety 45%"
 
         drugs_section += (
             f"{i}. **{name}** (SMILES: {r['smiles'][:60]}...)\n"

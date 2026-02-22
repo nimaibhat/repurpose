@@ -375,7 +375,11 @@ def predict_binding_affinity(pdb_text: str, ligand_sdf: str) -> dict | None:
             return None
 
         with torch.no_grad():
-            pkd = _gnn_model(data).item()
+            pkd_raw = _gnn_model(data).item()
+
+        # Clamp to realistic pKd range (0-12) to avoid nonsensical Kd values
+        # pKd > 12 (sub-picomolar) is essentially unheard of in drug discovery
+        pkd = max(0.0, min(12.0, pkd_raw))
 
         # Convert pKd to Kd in nanomolar: Kd = 10^(-pKd) * 1e9
         kd_nm = math.pow(10, -pkd) * 1e9

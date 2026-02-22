@@ -189,21 +189,24 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
     affinity_count = 0
     for dr in all_docking_results:
         pdb_path = STRUCTURES_DIR / f"{dr['pdb_id']}.pdb"
-        if pdb_path.exists() and dr.get("ligand_sdf"):
+        has_sdf = bool(dr.get("ligand_sdf"))
+        if pdb_path.exists() and has_sdf:
             affinity = predict_binding_affinity(pdb_path.read_text(), dr["ligand_sdf"])
             dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
             dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
             if affinity:
                 dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
                 affinity_count += 1
+                print(f"  GNN {dr.get('drug_name')}: pKd={affinity['predicted_pkd']}, Kd={affinity['predicted_kd_nm']} nM, score={dr['affinity_score']}")
             else:
                 dr["affinity_score"] = None
+                print(f"  GNN {dr.get('drug_name')}: featurization failed (pdb={dr['pdb_id']}, sdf_len={len(dr['ligand_sdf'])})")
         else:
             dr["predicted_pkd"] = None
             dr["predicted_kd_nm"] = None
             dr["affinity_score"] = None
-    if affinity_count:
-        print(f"GNN affinity predicted for {affinity_count}/{len(all_docking_results)} compounds")
+            print(f"  GNN skip {dr.get('drug_name')}: pdb_exists={pdb_path.exists()}, has_sdf={has_sdf}")
+    print(f"GNN affinity: {affinity_count}/{len(all_docking_results)} predicted")
 
     # Step 5: ADMET predictions
     admet_smiles = [dr["smiles"] for dr in all_docking_results]
@@ -218,13 +221,13 @@ async def run_pipeline(request: PipelineRequest, settings: Settings = Depends(ge
     for dr in all_docking_results:
         if dr.get("affinity_score") is not None:
             dr["combined_score"] = round(
-                dr["confidence_score"] * 0.35
-                + dr["affinity_score"] * 0.30
-                + dr["admet"]["overall_score"] * 0.35, 4
+                dr["confidence_score"] * 0.40
+                + dr["affinity_score"] * 0.15
+                + dr["admet"]["overall_score"] * 0.45, 4
             )
         else:
             dr["combined_score"] = round(
-                dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
+                dr["confidence_score"] * 0.55 + dr["admet"]["overall_score"] * 0.45, 4
             )
     all_docking_results.sort(key=lambda r: r["combined_score"], reverse=True)
 
@@ -478,21 +481,24 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
     affinity_count = 0
     for dr in all_docking_results:
         pdb_path = STRUCTURES_DIR / f"{dr['pdb_id']}.pdb"
-        if pdb_path.exists() and dr.get("ligand_sdf"):
+        has_sdf = bool(dr.get("ligand_sdf"))
+        if pdb_path.exists() and has_sdf:
             affinity = predict_binding_affinity(pdb_path.read_text(), dr["ligand_sdf"])
             dr["predicted_pkd"] = affinity["predicted_pkd"] if affinity else None
             dr["predicted_kd_nm"] = affinity["predicted_kd_nm"] if affinity else None
             if affinity:
                 dr["affinity_score"] = round(max(0.0, min(1.0, (affinity["predicted_pkd"] - 2) / 10)), 4)
                 affinity_count += 1
+                print(f"  GNN {dr.get('drug_name')}: pKd={affinity['predicted_pkd']}, Kd={affinity['predicted_kd_nm']} nM, score={dr['affinity_score']}")
             else:
                 dr["affinity_score"] = None
+                print(f"  GNN {dr.get('drug_name')}: featurization failed (pdb={dr['pdb_id']}, sdf_len={len(dr['ligand_sdf'])})")
         else:
             dr["predicted_pkd"] = None
             dr["predicted_kd_nm"] = None
             dr["affinity_score"] = None
-    if affinity_count:
-        print(f"GNN affinity predicted for {affinity_count}/{len(all_docking_results)} compounds")
+            print(f"  GNN skip {dr.get('drug_name')}: pdb_exists={pdb_path.exists()}, has_sdf={has_sdf}")
+    print(f"GNN affinity: {affinity_count}/{len(all_docking_results)} predicted")
 
     top_drug_name = all_docking_results[0].get("drug_name", "Unknown") if all_docking_results else "N/A"
     top_drug_score = all_docking_results[0]["confidence_score"] if all_docking_results else 0
@@ -518,13 +524,13 @@ async def _pipeline_stream(request: PipelineRequest) -> AsyncGenerator[str, None
     for dr in all_docking_results:
         if dr.get("affinity_score") is not None:
             dr["combined_score"] = round(
-                dr["confidence_score"] * 0.35
-                + dr["affinity_score"] * 0.30
-                + dr["admet"]["overall_score"] * 0.35, 4
+                dr["confidence_score"] * 0.40
+                + dr["affinity_score"] * 0.15
+                + dr["admet"]["overall_score"] * 0.45, 4
             )
         else:
             dr["combined_score"] = round(
-                dr["confidence_score"] * 0.6 + dr["admet"]["overall_score"] * 0.4, 4
+                dr["confidence_score"] * 0.55 + dr["admet"]["overall_score"] * 0.45, 4
             )
     all_docking_results.sort(key=lambda r: r["combined_score"], reverse=True)
 
