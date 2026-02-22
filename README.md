@@ -2,7 +2,7 @@
 
 **Team Buck** — Nimai Bhat, Samay Patel, Praketh Potlapalli, Harsha Kalivarapu
 
-Metformin, a diabetes drug, was found to have a use case for pancreatic cancer after 50 years. Thalidomide, originally a sedative, took decades before it was repurposed for multiple myeloma. These discoveries happened largely by accident. The process of finding new uses for existing drugs is slow, fragmented, and buried across disconnected databases and tools that most researchers don't have time to piece together.
+Metformin, a diabetes drug, was found to have a use case for pancreatic cancer after 50 years. Thalidomide, originally a sedative, took decades before it was repurposed for multiple myeloma. These discoveries happened largely by accident. Developing a new cancer drug costs $2.6 billion on average and fails 90% of the time, but thousands of FDA-approved drugs already exist that could be repurposed for new diseases if only those combinations could be narrowed down and tested.
 
 Repurpose is an AI-powered drug repurposing platform that changes this. Given a disease name, it automatically finds protein targets, retrieves 3D structures, searches for approved drugs, runs molecular docking simulations, predicts binding affinity and safety profiles, and generates AI-powered analysis reports, all streamed to the UI in real time.
 
